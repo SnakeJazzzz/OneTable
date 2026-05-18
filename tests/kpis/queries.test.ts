@@ -14,8 +14,12 @@ const TEST_EMAIL = 'test-kpis-s8@example.com';
 
 // Seed shape (current period = 2025-03):
 //
-//  SORIANA / A / store 001: sales 100 / $1000 / inv 20
-//  SORIANA / A / store 002: sales  50 / $ 500 / inv 10  → aggregated 150 sales, 30 inv → daysInv 6  → CRITICO
+// H1 SEMANTIC NOTE: per-store rows are classified individually via classifyAlert,
+// then worst-case alert per (sku, chain) is returned. SUM-then-classify is gone.
+//
+//  SORIANA / A / store 001: sales 100 / $1000 / inv 20  → daysInv 6  → CRITICO
+//  SORIANA / A / store 002: sales  50 / $ 500 / inv 10  → daysInv 6  → CRITICO
+//    → worst-case (A, SORIANA) = CRITICO (both stores CRITICO; same result, new semantics)
 //  SORIANA / B / store 001: sales  50 / $ 750 / inv 100 → daysInv 60  → OK
 //  SORIANA / C / store 001: sales  10 / $ 100 / inv 100 → daysInv 300 → EXCESO
 //  SORIANA / D / store 001: sales   0 / $   0 / inv 50  → daysInv NULL (salesUnits=0) → SIN_DATOS
@@ -24,15 +28,28 @@ const TEST_EMAIL = 'test-kpis-s8@example.com';
 //  AMAZON  / A             sales 200 / NULL  / inv 50  → daysInv 7.5 → RIESGO
 //  AMAZON  / B             sales 100 / NULL  / inv 80  → daysInv 24  → OK
 //
+// H1 regression — multi-store mixed alerts:
+//  SORIANA / F / store 001: sales   2 / $  20 / inv 10  → daysInv 150 → EXCESO
+//  SORIANA / F / store 002: sales   5 / $  50 / inv 0   → inv=0 → SIN_STOCK
+//    → worst-case (F, SORIANA) = SIN_STOCK; daysOfInv worst-case = 0
+//
+// H1 regression — negative inventory (accounting adjustment):
+//  SORIANA / G / store 001: sales  10 / $ 100 / inv -3  → inv<=0 → SIN_STOCK
+//  SORIANA / G / store 002: sales   2 / $  20 / inv 50  → daysInv 750 → EXCESO
+//    → worst-case (G, SORIANA) = SIN_STOCK; daysOfInv worst-case = 0
+//
 // KPI expectations for 2025-03:
-//   salesAmountMxn = 1000+500+750+100+0+1000+200 = 3550 (Amazon NULL excluded)
-//   salesUnits     = 100+50+50+10+0+100+20+200+100 = 630
-//   prev (2025-02) sum = $1000  → variationPct = (3550-1000)/1000*100 = 255
+//   salesAmountMxn = 1000+500+750+100+0+1000+200 + 20+50+100+20 = 3740 (Amazon NULL excluded)
+//   salesUnits     = 100+50+50+10+0+100+20+200+100 + 2+5+10+2 = 649
+//   prev (2025-02) sum = $1000  → variationPct = (3740-1000)/1000*100 = 274
 //   activeAlertsSkuCount = COUNT(DISTINCT productId) over alerts ∈ {SIN_STOCK, CRITICO, RIESGO}
-//     Product A (CRITICO on SORIANA, RIESGO on AMAZON) → counted once
-//     Product E (SIN_STOCK on SORIANA) → counted once
+//     H1 (KPI4): predicate is per-row; KPI4 uses `inventoryUnits <= 0` (H1) to count negatives.
+//     Product A (CRITICO on SORIANA store 001, RIESGO on AMAZON) → counted once
+//     Product E (SIN_STOCK on SORIANA store 001) → counted once
+//     Product F (SIN_STOCK on SORIANA store 002) → counted once
+//     Product G (SIN_STOCK on SORIANA store 001 via inv<=0) → counted once
 //     Unmapped row CRITICO would not count (productId NULL); ours is ATENCION anyway.
-//     Total = 2
+//     Total = 4
 //
 // Trend (monthsBack=6 anchored to latest period = 2025-03):
 //   2024-10 SORIANA / AMAZON (1 row each)
@@ -51,6 +68,8 @@ describe('KPI queries (S8) — integration against Neon', () => {
   let productC: string;
   let productD: string;
   let productE: string;
+  let productF: string;
+  let productG: string;
 
   beforeAll(async () => {
     await db.user.deleteMany({ where: { email: TEST_EMAIL } });
@@ -64,11 +83,15 @@ describe('KPI queries (S8) — integration against Neon', () => {
     const pC = await db.product.create({ data: { clientId, nameStandard: 'PRODUCT C' } });
     const pD = await db.product.create({ data: { clientId, nameStandard: 'PRODUCT D' } });
     const pE = await db.product.create({ data: { clientId, nameStandard: 'PRODUCT E' } });
+    const pF = await db.product.create({ data: { clientId, nameStandard: 'PRODUCT F' } });
+    const pG = await db.product.create({ data: { clientId, nameStandard: 'PRODUCT G' } });
     productA = pA.id;
     productB = pB.id;
     productC = pC.id;
     productD = pD.id;
     productE = pE.id;
+    productF = pF.id;
+    productG = pG.id;
 
     const upload = await db.upload.create({
       data: {
@@ -122,6 +145,12 @@ describe('KPI queries (S8) — integration against Neon', () => {
         mkRow({ chain: 'SORIANA', productId: null,     portalRawProduct: 'PROD-UNK',  storeId: '001', year: 2025, month: 3, salesUnits: 20, salesAmountMxn: 200, inventoryUnits: 10 }),
         mkRow({ chain: 'AMAZON',  productId: productA, portalRawProduct: 'ASIN-A',    storeId: null,  year: 2025, month: 3, salesUnits: 200, salesAmountMxn: null, inventoryUnits: 50 }),
         mkRow({ chain: 'AMAZON',  productId: productB, portalRawProduct: 'ASIN-B',    storeId: null,  year: 2025, month: 3, salesUnits: 100, salesAmountMxn: null, inventoryUnits: 80 }),
+        // H1 regression — multi-store mixed alerts (EXCESO + SIN_STOCK → worst-case SIN_STOCK)
+        mkRow({ chain: 'SORIANA', productId: productF, portalRawProduct: 'PROD-F-SOR', storeId: '001', year: 2025, month: 3, salesUnits: 2,  salesAmountMxn: 20,  inventoryUnits: 10 }),
+        mkRow({ chain: 'SORIANA', productId: productF, portalRawProduct: 'PROD-F-SOR', storeId: '002', year: 2025, month: 3, salesUnits: 5,  salesAmountMxn: 50,  inventoryUnits: 0 }),
+        // H1 regression — negative inventory accounting adjustment (SIN_STOCK via inv<=0)
+        mkRow({ chain: 'SORIANA', productId: productG, portalRawProduct: 'PROD-G-SOR', storeId: '001', year: 2025, month: 3, salesUnits: 10, salesAmountMxn: 100, inventoryUnits: -3 }),
+        mkRow({ chain: 'SORIANA', productId: productG, portalRawProduct: 'PROD-G-SOR', storeId: '002', year: 2025, month: 3, salesUnits: 2,  salesAmountMxn: 20,  inventoryUnits: 50 }),
       ],
     });
 
@@ -165,11 +194,15 @@ describe('KPI queries (S8) — integration against Neon', () => {
         periodMonth: 3,
       });
 
-      expect(kpis.salesAmountMxn).toBe(3550);
-      expect(kpis.salesUnits).toBe(630);
-      // (3550 - 1000) / 1000 * 100 = 255
-      expect(kpis.variationPct).toBeCloseTo(255, 5);
-      expect(kpis.activeAlertsSkuCount).toBe(2);
+      // H1: F and G added 20+50+100+20=190 MXN, 2+5+10+2=19 units to the seed.
+      expect(kpis.salesAmountMxn).toBe(3740);
+      expect(kpis.salesUnits).toBe(649);
+      // (3740 - 1000) / 1000 * 100 = 274
+      expect(kpis.variationPct).toBeCloseTo(274, 5);
+      // H1: KPI4 now uses `inventoryUnits <= 0` (was `= 0`). Distinct alerted SKUs:
+      //   A (CRITICO), E (inv=0 → SIN_STOCK), F (inv=0 in store 002 → SIN_STOCK),
+      //   G (inv=-3 in store 001 → SIN_STOCK via <= 0) = 4
+      expect(kpis.activeAlertsSkuCount).toBe(4);
     });
 
     it('returns variationPct=null when previous period has no data', async () => {
@@ -208,8 +241,9 @@ describe('KPI queries (S8) — integration against Neon', () => {
       });
 
       const byChain = Object.fromEntries(rows.map((r) => [r.chain, r]));
-      expect(byChain.SORIANA.salesUnits).toBe(330);
-      expect(byChain.SORIANA.salesAmountMxn).toBe(3550);
+      // H1: SORIANA now includes F (7 units, $70) and G (12 units, $120) → 330+19=349, 3550+190=3740
+      expect(byChain.SORIANA.salesUnits).toBe(349);
+      expect(byChain.SORIANA.salesAmountMxn).toBe(3740);
       expect(byChain.AMAZON.salesUnits).toBe(300);
       expect(byChain.AMAZON.salesAmountMxn).toBe(0); // all NULL collapses to 0
     });
@@ -231,13 +265,14 @@ describe('KPI queries (S8) — integration against Neon', () => {
       const target = rows.find(
         (r) => r.chain === 'SORIANA' && r.periodYear === 2025 && r.periodMonth === 3,
       );
-      expect(target?.salesAmountMxn).toBe(3550);
-      expect(target?.salesUnits).toBe(330);
+      // H1: F + G added 190 MXN / 19 units to SORIANA 2025-03.
+      expect(target?.salesAmountMxn).toBe(3740);
+      expect(target?.salesUnits).toBe(349);
     });
   });
 
   describe('getInventorySemaforo', () => {
-    it('aggregates inventoryUnits + salesUnits across stores per (product, chain) and classifies alert', async () => {
+    it('classifies each store-row individually and returns worst-case alert per (product, chain)', async () => {
       const rows = await getInventorySemaforo(db, {
         clientId,
         userId,
@@ -245,20 +280,32 @@ describe('KPI queries (S8) — integration against Neon', () => {
         periodMonth: 3,
       });
 
-      // Expected rows: 6 SORIANA (A, B, C, D, E, unmapped) + 2 AMAZON (A, B) = 8
-      expect(rows.length).toBe(8);
+      // H1: worst-case folds per-store rows. Buckets:
+      //   SORIANA: A, B, C, D, E, unmapped, F, G + AMAZON: A, B = 10
+      expect(rows.length).toBe(10);
 
       const find = (productName: string, chain: Chain) =>
         rows.find((r) => r.productName === productName && r.chain === chain);
 
-      expect(find('PRODUCT A', 'SORIANA')?.alert).toBe('CRITICO'); // 30/150*30=6
-      expect(find('PRODUCT B', 'SORIANA')?.alert).toBe('OK'); // 100/50*30=60
-      expect(find('PRODUCT C', 'SORIANA')?.alert).toBe('EXCESO'); // 300
+      // SEMANTIC NOTE (H1): A was CRITICO via SUM(30)/SUM(150)*30=6 pre-fix.
+      // Post-fix: store 001 daysInv=6 (CRITICO), store 002 daysInv=6 (CRITICO) → worst=CRITICO.
+      // Same value, different path.
+      expect(find('PRODUCT A', 'SORIANA')?.alert).toBe('CRITICO');
+      expect(find('PRODUCT B', 'SORIANA')?.alert).toBe('OK'); // single store, 100/50*30=60
+      expect(find('PRODUCT C', 'SORIANA')?.alert).toBe('EXCESO'); // single store, 300
       expect(find('PRODUCT D', 'SORIANA')?.alert).toBe('SIN_DATOS'); // sales=0
       expect(find('PRODUCT E', 'SORIANA')?.alert).toBe('SIN_STOCK'); // inv=0
       expect(find('PROD-UNK', 'SORIANA')?.alert).toBe('ATENCION'); // 10/20*30=15
       expect(find('PRODUCT A', 'AMAZON')?.alert).toBe('RIESGO'); // 50/200*30=7.5
       expect(find('PRODUCT B', 'AMAZON')?.alert).toBe('OK'); // 80/100*30=24
+
+      // H1 NEW: worst-case must surface the SIN_STOCK store, not dilute via SUM.
+      //   Pre-fix would have computed SUM(10+0)=10 inv / SUM(2+5)=7 sales * 30 ≈ 42.9 → OK (BUG).
+      expect(find('PRODUCT F', 'SORIANA')?.alert).toBe('SIN_STOCK');
+
+      // H1 NEW: negative inventory in one store flags the SKU.
+      //   Pre-fix would have computed SUM(-3+50)=47 inv / SUM(10+2)=12 sales * 30 ≈ 117.5 → EXCESO (BUG).
+      expect(find('PRODUCT G', 'SORIANA')?.alert).toBe('SIN_STOCK');
     });
 
     it('preserves productId=null for unmapped rows', async () => {
@@ -304,7 +351,7 @@ describe('KPI queries (S8) — integration against Neon', () => {
   });
 
   describe('getDaysOfInventoryBySku', () => {
-    it('computes daysOfInventory at query using inv/sales*30 (AJUSTE 1)', async () => {
+    it('returns worst-case (lowest) daysOfInventory per SKU across stores', async () => {
       const rows = await getDaysOfInventoryBySku(db, {
         clientId,
         userId,
@@ -315,11 +362,22 @@ describe('KPI queries (S8) — integration against Neon', () => {
       const find = (productName: string, chain: Chain) =>
         rows.find((r) => r.productName === productName && r.chain === chain);
 
-      expect(find('PRODUCT A', 'SORIANA')?.daysOfInventory).toBeCloseTo(6, 5); // 30/150*30
+      // SEMANTIC NOTE (H1): Product A pre-fix used SUM/SUM=30/150*30=6. Post-fix:
+      // store 001 has inv/sales*30=20/100*30=6, store 002 has 10/50*30=6 → min=6.
+      // Same value, but now reflecting the worst-case store (or tie).
+      expect(find('PRODUCT A', 'SORIANA')?.daysOfInventory).toBeCloseTo(6, 5);
       expect(find('PRODUCT B', 'SORIANA')?.daysOfInventory).toBe(60);
       expect(find('PRODUCT C', 'SORIANA')?.daysOfInventory).toBe(300);
       expect(find('PRODUCT D', 'SORIANA')?.daysOfInventory).toBeNull(); // sales=0
       expect(find('PRODUCT A', 'AMAZON')?.daysOfInventory).toBeCloseTo(7.5, 5);
+
+      // H1 NEW: F mixed = EXCESO store (10/2*30=150) + SIN_STOCK store (inv=0).
+      //   Pre-fix: SUM(10+0)/SUM(2+5)*30 ≈ 42.9. Post-fix: 0 (the about-to-stockout store).
+      expect(find('PRODUCT F', 'SORIANA')?.daysOfInventory).toBe(0);
+
+      // H1 NEW: G negative-inv store contributes 0; the EXCESO store has 750.
+      //   Post-fix worst-case = 0 (out today via accounting adjustment).
+      expect(find('PRODUCT G', 'SORIANA')?.daysOfInventory).toBe(0);
     });
   });
 });

@@ -8,6 +8,11 @@ describe('classifyAlert', () => {
     [0, 5, 'SIN_STOCK'],
     [0, 50, 'SIN_STOCK'],
 
+    // H1: inv<0 (accounting adjustments, returns) → SIN_STOCK
+    [-5, 10, 'SIN_STOCK'],
+    [-1, null, 'SIN_STOCK'],
+    [-100, 0, 'SIN_STOCK'],
+
     // days null (inv != 0) → SIN_DATOS
     [10, null, 'SIN_DATOS'],
     [null, null, 'SIN_DATOS'],

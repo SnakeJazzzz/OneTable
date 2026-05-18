@@ -44,6 +44,11 @@ export async function getDashboardKpis(
 
   // Three parallel raw queries. daysOfInv computed at query per AJUSTE 1.
   // KPI4 inlined CASE: alert ∈ {SIN_STOCK, CRITICO, RIESGO} (per spec §9.1).
+  // KPI4 evaluates the predicate per row (not per aggregated SKU) and then
+  // COUNT(DISTINCT productId) collapses to one count per SKU. That semantic
+  // matches "worst-case per SKU": any single store-row in {SIN_STOCK, CRITICO,
+  // RIESGO} flags the entire SKU as alerted. H1: `<= 0` (was `= 0`) treats
+  // negative inventory adjustments as SIN_STOCK — mirrors classifyAlert(JS).
   const [current, prev, alerts] = await Promise.all([
     db.$queryRaw<Array<{ sales_amount: number | null; sales_units: bigint | null }>>`
       SELECT
@@ -74,7 +79,7 @@ export async function getDashboardKpis(
         AND "periodMonth"= ${periodMonth}
         AND "productId" IS NOT NULL
         AND (
-          "inventoryUnits" = 0
+          "inventoryUnits" <= 0
           OR (
             "salesUnits"     IS NOT NULL AND "salesUnits"     > 0
             AND "inventoryUnits" IS NOT NULL
@@ -182,19 +187,24 @@ export async function getSalesByChainForPeriod(
 }
 
 // 3. Semáforo inventario por SKU (heatmap producto × cadena con alerta)
-//    Aggregates across stores. classifyAlert applied in JS (single source of truth — S9).
+//    H1 (worst-case): fetch per-store rows, classify each individually via
+//    classifyAlert (SSOT), then reduce to the worst-case alert per (sku, chain).
+//    Prior behavior (SUM-then-classify) diluted stockouts: a chain with 13
+//    stockout rows + 1 healthy row could appear OK on the semáforo. Spec §9.1
+//    requires "Color: estado de alerta agregado (worst-case por SKU)".
 export async function getInventorySemaforo(
   db: PrismaClient,
   params: PeriodParams,
 ): Promise<SkuInventoryStatus[]> {
   const { clientId, userId, periodYear, periodMonth } = params;
 
+  // Per-store rows; ORDER BY drives deterministic output order after reduction.
   const rows = await db.$queryRaw<
     Array<{
       product_id: string | null;
       product_name: string;
       chain: Chain;
-      inventory_units: bigint | null;
+      inventory_units: number | null;
       sales_units: bigint | null;
     }>
   >`
@@ -202,28 +212,64 @@ export async function getInventorySemaforo(
       sd."productId"                                              AS product_id,
       COALESCE(p."nameStandard", sd."portalRawProduct")           AS product_name,
       sd.chain                                                    AS chain,
-      SUM(sd."inventoryUnits")::bigint                            AS inventory_units,
-      SUM(sd."salesUnits")::bigint                                AS sales_units
+      sd."inventoryUnits"                                         AS inventory_units,
+      sd."salesUnits"::bigint                                     AS sales_units
     FROM "SelloutData" sd
     LEFT JOIN "Product" p ON p.id = sd."productId"
     WHERE sd."clientId"   = ${clientId}
       AND sd."userId"     = ${userId}
       AND sd."periodYear" = ${periodYear}
       AND sd."periodMonth"= ${periodMonth}
-    GROUP BY sd."productId", p."nameStandard", sd."portalRawProduct", sd.chain
     ORDER BY product_name ASC, sd.chain ASC
   `;
 
-  return rows.map((r) => {
+  // Severity ranking (lowest = worst). Used to fold many stores → one alert.
+  const severity: Record<AlertStatus, number> = {
+    SIN_STOCK: 1,
+    CRITICO: 2,
+    RIESGO: 3,
+    ATENCION: 4,
+    EXCESO: 5,
+    OK: 6,
+    SIN_DATOS: 7,
+  };
+
+  // Group key = `${productId ?? portalRawProduct}|${chain}`. We use
+  // product_name as the proxy for portalRawProduct in the unmapped case
+  // because SELECT COALESCEs them — same shape as the prior SUM grouping.
+  type Bucket = {
+    productId: string | null;
+    productName: string;
+    chain: Chain;
+    alert: AlertStatus;
+  };
+  const buckets = new Map<string, Bucket>();
+
+  for (const r of rows) {
     const inv = r.inventory_units == null ? null : Number(r.inventory_units);
     const sales = r.sales_units == null ? null : Number(r.sales_units);
-    const daysOfInv = sales !== null && sales > 0 && inv !== null ? (inv / sales) * 30 : null;
-    return {
-      productId: r.product_id,
-      productName: r.product_name,
-      chain: r.chain,
-      alert: classifyAlert(inv, daysOfInv),
-    };
+    const daysOfInv =
+      sales !== null && sales > 0 && inv !== null ? (inv / sales) * 30 : null;
+    const rowAlert = classifyAlert(inv, daysOfInv);
+
+    const key = `${r.product_id ?? r.product_name}|${r.chain}`;
+    const existing = buckets.get(key);
+    if (!existing) {
+      buckets.set(key, {
+        productId: r.product_id,
+        productName: r.product_name,
+        chain: r.chain,
+        alert: rowAlert,
+      });
+    } else if (severity[rowAlert] < severity[existing.alert]) {
+      existing.alert = rowAlert;
+    }
+  }
+
+  // Preserve the legacy output ordering: productName ASC, chain ASC.
+  return Array.from(buckets.values()).sort((a, b) => {
+    if (a.productName !== b.productName) return a.productName < b.productName ? -1 : 1;
+    return a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0;
   });
 }
 
@@ -270,7 +316,12 @@ export async function getTopSkusByChain(
 }
 
 // 5. Días de inventario por SKU (dot plot)
-//    daysOfInv computed at query (AJUSTE 1), aggregated across stores.
+//    H1 (worst-case): the dot plot answers "how soon does this SKU run out?".
+//    Aggregating SUM(inv)/SUM(sales) lets a healthy store hide a stockout in
+//    a sibling store. We now fetch per-store rows and return the LOWEST
+//    daysOfInv per (sku, chain) — the most-at-risk store. Stores with
+//    inv<=0 (SIN_STOCK semantics) contribute daysOfInv=0 to highlight "out
+//    today". If every row for a SKU has sales=0 and inv>0, daysOfInv=null.
 export async function getDaysOfInventoryBySku(
   db: PrismaClient,
   params: PeriodParams,
@@ -279,32 +330,75 @@ export async function getDaysOfInventoryBySku(
 
   const rows = await db.$queryRaw<
     Array<{
+      product_id: string | null;
       product_name: string;
       chain: Chain;
-      days_of_inventory: number | null;
+      inventory_units: number | null;
+      sales_units: bigint | null;
     }>
   >`
     SELECT
+      sd."productId"                                    AS product_id,
       COALESCE(p."nameStandard", sd."portalRawProduct") AS product_name,
       sd.chain                                          AS chain,
-      CASE
-        WHEN SUM(sd."salesUnits") > 0
-        THEN (SUM(sd."inventoryUnits")::float8 / SUM(sd."salesUnits")) * 30
-        ELSE NULL
-      END                                               AS days_of_inventory
+      sd."inventoryUnits"                               AS inventory_units,
+      sd."salesUnits"::bigint                           AS sales_units
     FROM "SelloutData" sd
     LEFT JOIN "Product" p ON p.id = sd."productId"
     WHERE sd."clientId"   = ${clientId}
       AND sd."userId"     = ${userId}
       AND sd."periodYear" = ${periodYear}
       AND sd."periodMonth"= ${periodMonth}
-    GROUP BY sd."productId", p."nameStandard", sd."portalRawProduct", sd.chain
     ORDER BY product_name ASC, sd.chain ASC
   `;
 
-  return rows.map((r) => ({
-    productName: r.product_name,
-    chain: r.chain,
-    daysOfInventory: r.days_of_inventory == null ? null : Number(r.days_of_inventory),
-  }));
+  type Bucket = {
+    productName: string;
+    chain: Chain;
+    daysOfInventory: number | null;
+  };
+  const buckets = new Map<string, Bucket>();
+
+  for (const r of rows) {
+    const inv = r.inventory_units == null ? null : Number(r.inventory_units);
+    const sales = r.sales_units == null ? null : Number(r.sales_units);
+    // H1: inv<=0 → daysOfInv = 0 (about-to-stockout signal for the dot plot).
+    // sales>0 → standard inv/sales*30. Otherwise null (no signal possible).
+    let rowDays: number | null;
+    if (inv !== null && inv <= 0) {
+      rowDays = 0;
+    } else if (sales !== null && sales > 0 && inv !== null) {
+      rowDays = (inv / sales) * 30;
+    } else {
+      rowDays = null;
+    }
+
+    const key = `${r.product_id ?? r.product_name}|${r.chain}`;
+    const existing = buckets.get(key);
+    if (!existing) {
+      buckets.set(key, {
+        productName: r.product_name,
+        chain: r.chain,
+        daysOfInventory: rowDays,
+      });
+    } else {
+      // Worst-case = lowest non-null daysOfInv. null is treated as "no signal"
+      // and replaced by any non-null value; if no row ever supplies a number,
+      // it stays null.
+      if (existing.daysOfInventory === null && rowDays !== null) {
+        existing.daysOfInventory = rowDays;
+      } else if (
+        rowDays !== null &&
+        existing.daysOfInventory !== null &&
+        rowDays < existing.daysOfInventory
+      ) {
+        existing.daysOfInventory = rowDays;
+      }
+    }
+  }
+
+  return Array.from(buckets.values()).sort((a, b) => {
+    if (a.productName !== b.productName) return a.productName < b.productName ? -1 : 1;
+    return a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0;
+  });
 }
