@@ -25,3 +25,10 @@ try {
 } catch {
   // .env.local optional (e.g., CI uses real env vars instead).
 }
+
+// NextAuth v5 throws at runtime if AUTH_SECRET is unset. After loading
+// .env.local (which usually sets it), fall back to a sentinel so tests that
+// import @/auth don't fail on misconfigured local envs.
+if (!process.env.AUTH_SECRET) {
+  process.env.AUTH_SECRET = 'test-only-secret-do-not-use-in-prod';
+}
