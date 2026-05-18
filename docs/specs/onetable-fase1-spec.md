@@ -31,7 +31,7 @@
 - **D5** — Export Excel/CSV client-side con SheetJS.
 - **D6** — Selector manual de portal en upload (no auto-detect).
 - **D7** — Productos sin mapear: insertar `SelloutData` con `productId = NULL` + insertar/actualizar `UnmappedProduct`. Banner persistente en Dashboard "Tienes N productos sin mapear" con CTA a Catálogo.
-- **D8** — Branch protection en GitHub OFF durante setup. Hook local `block-main-writes` protege. Decisión consciente registrada en ADR-001 (pendiente de escribir).
+- **D8** — Branch protection en GitHub OFF durante setup. Hook local `block-main-writes` protege. Decisión consciente registrada en ADR-001 (ver `docs/adr/ADR-001-branch-protection-off-during-setup.md`).
 
 ### Decisiones cerradas durante el brainstorming
 - **Upload UX:** selector explícito por archivo en la página Análisis. Etiquetas: `Soriana — Mixto`, `Chedraui — Mixto`, `Amazon — Ventas`, `Amazon — Inventario`. Una Upload row por archivo.
