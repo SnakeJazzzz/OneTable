@@ -8,7 +8,13 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:reset": "prisma migrate reset --force",
+    "preflight": "tsx scripts/preflight.ts"
+  },
+  "prisma": {
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "next": "14.2.18",
