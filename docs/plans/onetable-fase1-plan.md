@@ -125,13 +125,16 @@ Contexto: incidente reciente de supply chain ("Mini Shai-Hulud"). Estas mitigaci
 
 5. **NUNCA** borrar `pnpm-lock.yaml` una vez creado y commiteado. Si hay troubleshooting, borrar solo `node_modules` y reinstalar con `--ignore-scripts`.
 
-6. **NO** ejecutar `pnpm view`, `pnpm search`, `npm view`. NO instalar paquetes adicionales fuera de la lista pineada arriba sin antes consultar usuario.
+6. **NO** ejecutar `pnpm view`, `pnpm search`, `npm view`. Si un task requiere paquete nuevo no listado, el implementer PUEDE agregarlo si cumple TODOS:
+   - (a) Pin EXACTO sin `^` ni `~` en `package.json` (manual edit antes de install)
+   - (b) `pnpm install --ignore-scripts` (nunca sin la flag)
+   - (c) Supply-chain check pre + post-install
+   - (d) Grep lockfile post-install contra suspicious tokens
+   - (e) Reportar al final del task: lista de paquetes agregados con versiones exactas + razón técnica
+   
+   NO requiere aprobación previa del usuario, SÍ requiere reporte explícito en el handoff. Versión que se agregue debe ser razonablemente pre-incidente (29-abril-2026); si dudoso, marcar en el reporte para que el usuario confirme post-hoc.
 
-7. **Para `pnpm dlx shadcn@latest add <component>`** (en G2, G6, G7, G5, G4, G8):
-   - Primero `--no-install` para ver qué deps agregaría (típicamente `@radix-ui/react-*`).
-   - Mostrar al usuario la lista de deps + versiones exactas que se agregarían.
-   - **PARAR y esperar confirmación** del usuario para agregar esas versiones a la lista pineada.
-   - Solo después: editar `package.json` con los nuevos pins + `pnpm install --ignore-scripts` + correr `shadcn add` sin `--no-install`.
+7. **Para `pnpm dlx shadcn@latest add <component>`** (en G2, G6, G7, G5, G4, G8): mismas reglas que #6. Ejecutar directo con --ignore-scripts (o usando `--no-install` + manual pin + install) y reportar deps agregadas al final del task.
 
 8. **Verificación lockfile post-install** (después de cada `pnpm install`/`pnpm add`):
    ```bash
@@ -148,14 +151,31 @@ Contexto: incidente reciente de supply chain ("Mini Shai-Hulud"). Estas mitigaci
 
 ```bash
 #!/bin/bash
+set -euo pipefail
 echo "Checking for Mini Shai-Hulud infection markers..."
 INFECTED=0
 [ -f ~/Library/LaunchAgents/com.user.gh-token-monitor.plist ] && echo "❌ INFECTED: gh-token-monitor daemon" && INFECTED=1
 [ -f ~/.claude/router_runtime.js ] && echo "❌ INFECTED: router_runtime.js" && INFECTED=1
 [ -f ~/.vscode/setup.mjs ] && echo "❌ INFECTED: setup.mjs" && INFECTED=1
-[ $INFECTED -eq 1 ] && exit 1
+[ "$INFECTED" -eq 1 ] && exit 1
 echo "✅ Clean — no infection markers detected"
 ```
+
+### Verificación automática post-task (mandatoria al final de CADA implementer task)
+
+Después de implementer (antes de declarar DONE), correr:
+
+```bash
+./scripts/check-supply-chain.sh
+grep -E '"[\^~]' package.json && echo "❌ FOUND caret/tilde" && exit 1 || echo "✅ all pins exact"
+grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|router_init|setup\.mjs|router_runtime" pnpm-lock.yaml | grep -v lightningcss && echo "❌ SUSPICIOUS lockfile entry" && exit 1 || echo "✅ lockfile clean"
+```
+
+Si cualquier check falla, task NO es DONE — fix antes de commit.
+
+### Dispatch pattern note
+
+El prompt template del implementer subagent debe INCLUIR LITERAL la sección "Reglas durante toda la ejecución del plan" (las 10 reglas) como prefijo de cada prompt. No depender de que el subagente las descubra leyendo el plan.
 
 ---
 
