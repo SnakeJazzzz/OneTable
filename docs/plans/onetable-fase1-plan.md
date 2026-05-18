@@ -78,224 +78,519 @@ G0 (Bootstrap)
 
 ---
 
+## ⚠ SUPPLY CHAIN MITIGATIONS (aplican a TODA instalación durante todo el plan)
+
+Contexto: incidente reciente de supply chain ("Mini Shai-Hulud"). Estas mitigaciones son no-negociables. Cualquier subagente debe respetarlas en cada `pnpm install`, `pnpm add`, o invocación de scaffolder externo.
+
+### Reglas durante toda la ejecución del plan
+
+1. **`scripts/check-supply-chain.sh`** debe existir y correr ANTES y DESPUÉS de cada `pnpm install` / `pnpm add`. Si detecta infección → PARAR y notificar usuario. NO rotar tokens.
+
+2. **TODAS las versiones pineadas EXACTAS** en `package.json` (sin `^` ni `~`). Lista verificada pre-incidente (publicadas antes del 29-abril-2026):
+
+   **Runtime deps:**
+   - `next@14.2.18`
+   - `react@18.3.1`
+   - `react-dom@18.3.1`
+   - `prisma@6.19.3`
+   - `@prisma/client@6.19.3`
+   - `next-auth@5.0.0-beta.25`
+   - `@auth/prisma-adapter@2.7.4`
+   - `recharts@2.13.0`
+   - `xlsx@0.18.5`
+   - `papaparse@5.4.1`
+   - `bcryptjs@2.4.3`
+
+   **Dev deps:**
+   - `typescript@5.3.3`
+   - `@types/node@20.17.10`
+   - `@types/react@18.3.18`
+   - `@types/react-dom@18.3.5`
+   - `@types/bcryptjs@2.4.6`
+   - `@types/papaparse@5.3.15`
+   - `tailwindcss@3.4.17`
+   - `postcss@8.5.1`
+   - `autoprefixer@10.4.20`
+   - `vitest@2.1.8`
+   - `@vitest/coverage-v8@2.1.8`
+   - `tsx@4.19.2`
+   - `eslint@8.57.1`
+   - `eslint-config-next@14.2.18`
+
+3. **SIEMPRE** usar `pnpm install --ignore-scripts` y `pnpm add --ignore-scripts <pkg>`. Sin excepciones.
+
+4. **Post-install ejecutar manualmente solo lo necesario:**
+   - `pnpm dlx prisma@6.19.3 generate` después de S0 cuando schema.prisma exista.
+   - NO correr otros postinstall hooks.
+
+5. **NUNCA** borrar `pnpm-lock.yaml` una vez creado y commiteado. Si hay troubleshooting, borrar solo `node_modules` y reinstalar con `--ignore-scripts`.
+
+6. **NO** ejecutar `pnpm view`, `pnpm search`, `npm view`. NO instalar paquetes adicionales fuera de la lista pineada arriba sin antes consultar usuario.
+
+7. **Para `pnpm dlx shadcn@latest add <component>`** (en G2, G6, G7, G5, G4, G8):
+   - Primero `--no-install` para ver qué deps agregaría (típicamente `@radix-ui/react-*`).
+   - Mostrar al usuario la lista de deps + versiones exactas que se agregarían.
+   - **PARAR y esperar confirmación** del usuario para agregar esas versiones a la lista pineada.
+   - Solo después: editar `package.json` con los nuevos pins + `pnpm install --ignore-scripts` + correr `shadcn add` sin `--no-install`.
+
+8. **Verificación lockfile post-install** (después de cada `pnpm install`/`pnpm add`):
+   ```bash
+   grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|lightning" pnpm-lock.yaml && echo "❌ SUSPICIOUS" || echo "✅ clean"
+   grep -E "router_init|setup\.mjs|router_runtime" pnpm-lock.yaml && echo "❌ SUSPICIOUS" || echo "✅ clean"
+   ```
+   Cualquier hit → PARAR + notificar.
+
+9. **NO usar `create-next-app`** ni similares scaffolders auto-installer. Scaffold manual (G0 paso a paso) garantiza control de versions + `--ignore-scripts` desde el inicio.
+
+10. **Si una versión pineada no existe o tiene peer-dep que no resuelve:** PARAR y consultar usuario. NO improvisar versiones.
+
+### Script `check-supply-chain.sh`
+
+```bash
+#!/bin/bash
+echo "Checking for Mini Shai-Hulud infection markers..."
+INFECTED=0
+[ -f ~/Library/LaunchAgents/com.user.gh-token-monitor.plist ] && echo "❌ INFECTED: gh-token-monitor daemon" && INFECTED=1
+[ -f ~/.claude/router_runtime.js ] && echo "❌ INFECTED: router_runtime.js" && INFECTED=1
+[ -f ~/.vscode/setup.mjs ] && echo "❌ INFECTED: setup.mjs" && INFECTED=1
+[ $INFECTED -eq 1 ] && exit 1
+echo "✅ Clean — no infection markers detected"
+```
+
+---
+
 ## Tareas
 
-### Task G0 — Bootstrap Next.js + shadcn + theme
+### Task G0 — Bootstrap Next.js + shadcn + emerald theme (manual scaffold)
 
 **Tipo:** Gate (decisión visual del accent color requiere usuario).
 **Estimado:** 1.5h.
-**Spec ref:** §1 (stack y layout), §7.2 G2 razones para gate.
+**Spec ref:** §1 (stack y layout), §7.2 G2 razones para gate, **SUPPLY CHAIN MITIGATIONS** (arriba del plan).
 **Upstream deps:** ninguna.
 **Downstream deps:** S0.
+**Accent decidido (PD2):** **emerald `#10B981`** → HSL `158 64% 40%`.
+**NextAuth pin (PD1):** `next-auth@5.0.0-beta.25`.
 
 **Files:**
-- Create: `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `next.config.mjs`, `tailwind.config.ts`, `postcss.config.mjs`, `app/layout.tsx`, `app/page.tsx`, `app/globals.css`, `components/ui/*` (vía shadcn), `components.json` (shadcn config).
-- Create: `.gitignore` (Next.js defaults + `.next/`, `node_modules/`, `.env.local`).
+- Create: `scripts/check-supply-chain.sh`
+- Create: `package.json`, `pnpm-lock.yaml`
+- Create: `tsconfig.json`, `next.config.mjs`, `tailwind.config.ts`, `postcss.config.mjs`, `.eslintrc.json`
+- Create: `app/layout.tsx`, `app/page.tsx`, `app/globals.css`
+- Create: `lib/utils.ts` (cn() helper)
+- Create: `components.json` (shadcn config, escrito a mano)
+- Create: `.gitignore`
+
+**Por qué scaffold manual (no `create-next-app`):** mitigación #9 — `create-next-app` corre `pnpm install` internamente sin `--ignore-scripts`. Bypass total al scaffolder garantiza control de versions + ignore-scripts desde el primer install.
+
+- [ ] **Step 0a: Crear `scripts/check-supply-chain.sh`** (mitigación #1)
+
+```bash
+mkdir -p scripts
+cat > scripts/check-supply-chain.sh <<'SH'
+#!/bin/bash
+echo "Checking for Mini Shai-Hulud infection markers..."
+INFECTED=0
+[ -f ~/Library/LaunchAgents/com.user.gh-token-monitor.plist ] && echo "❌ INFECTED: gh-token-monitor daemon" && INFECTED=1
+[ -f ~/.claude/router_runtime.js ] && echo "❌ INFECTED: router_runtime.js" && INFECTED=1
+[ -f ~/.vscode/setup.mjs ] && echo "❌ INFECTED: setup.mjs" && INFECTED=1
+[ $INFECTED -eq 1 ] && exit 1
+echo "✅ Clean — no infection markers detected"
+SH
+chmod +x scripts/check-supply-chain.sh
+```
+
+- [ ] **Step 0b: Correr supply-chain check PRE-bootstrap**
+
+```bash
+./scripts/check-supply-chain.sh
+```
+Expected: `✅ Clean`. Si retorna `❌ INFECTED` → PARAR, notificar usuario, NO rotar tokens.
 
 - [ ] **Step 1: Verificar workspace limpio**
 
 ```bash
 ls -la
 git status
+git branch --show-current
 ```
-Expected: working tree clean en branch `plan/onetable-fase1`. No `package.json` existente.
+Expected: working tree clean, branch `plan/onetable-fase1`, NO `package.json` existente.
 
-- [ ] **Step 2: create-next-app**
+- [ ] **Step 2: Crear `package.json` con TODAS las deps pineadas exactas**
 
 ```bash
-pnpm dlx create-next-app@14 . \
-  --typescript --tailwind --app \
-  --src-dir false --import-alias "@/*" --use-pnpm \
-  --eslint --no-experimental
+cat > package.json <<'JSON'
+{
+  "name": "onetable",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "next": "14.2.18",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "prisma": "6.19.3",
+    "@prisma/client": "6.19.3",
+    "next-auth": "5.0.0-beta.25",
+    "@auth/prisma-adapter": "2.7.4",
+    "recharts": "2.13.0",
+    "xlsx": "0.18.5",
+    "papaparse": "5.4.1",
+    "bcryptjs": "2.4.3"
+  },
+  "devDependencies": {
+    "typescript": "5.3.3",
+    "@types/node": "20.17.10",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@types/bcryptjs": "2.4.6",
+    "@types/papaparse": "5.3.15",
+    "tailwindcss": "3.4.17",
+    "postcss": "8.5.1",
+    "autoprefixer": "10.4.20",
+    "vitest": "2.1.8",
+    "@vitest/coverage-v8": "2.1.8",
+    "tsx": "4.19.2",
+    "eslint": "8.57.1",
+    "eslint-config-next": "14.2.18"
+  }
+}
+JSON
 ```
 
-Si pregunta sobre overwrite de archivos existentes (`.gitignore`, etc.), responder `y`.
-
-Expected: `package.json`, `app/`, `tsconfig.json`, `tailwind.config.ts` creados.
-
-- [ ] **Step 3: Verificar build inicial**
-
+Verificar SIN caret/tilde:
 ```bash
-pnpm install
-pnpm dev
+grep -E '"[\^~]' package.json && echo "❌ FOUND ^ or ~" || echo "✅ all pins exact"
 ```
-Expected: `http://localhost:3000` muestra página default de Next.js. Matar el server con Ctrl+C.
+Expected: `✅ all pins exact`.
 
-- [ ] **Step 4: Inicializar shadcn**
+- [ ] **Step 3: Crear configs Next.js (manuales, sin scaffolder)**
 
-```bash
-pnpm dlx shadcn@latest init
+`tsconfig.json`:
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
 ```
 
-Responder:
-- Style: `Default`
-- Base color: `Neutral`
-- CSS variables: `Yes`
+`next.config.mjs`:
+```js
+/** @type {import('next').NextConfig} */
+const nextConfig = {};
+export default nextConfig;
+```
 
-Expected: `components.json` creado, `app/globals.css` actualizado con CSS vars, `components/ui/` creado.
+`postcss.config.mjs`:
+```js
+export default {
+  plugins: { tailwindcss: {}, autoprefixer: {} },
+};
+```
 
-- [ ] **Step 5: Aplicar accent color (PD2 — pendiente del usuario)**
+`tailwind.config.ts`:
+```ts
+import type { Config } from 'tailwindcss';
 
-Editar `app/globals.css`. Reemplazar valor de `--primary` y `--primary-foreground` en `:root` y `.dark` con el accent elegido por el usuario en PD2.
+const config: Config = {
+  darkMode: ['class'],
+  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary: { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
+        muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
+        border: 'hsl(var(--border))',
+      },
+    },
+  },
+  plugins: [],
+};
+export default config;
+```
 
-Ejemplo si eligió "Indigo" (`#6366F1`):
+`.eslintrc.json`:
+```json
+{ "extends": "next/core-web-vitals" }
+```
+
+`.gitignore`:
+```
+node_modules/
+.next/
+out/
+.env
+.env.local
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+```
+
+- [ ] **Step 4: Crear `app/layout.tsx`, `app/page.tsx`, `app/globals.css` (con emerald accent + dark mode)**
+
+`app/globals.css`:
 ```css
-:root {
-  --primary: 239 84% 67%;
-  --primary-foreground: 0 0% 98%;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --border: 0 0% 89.8%;
+    --primary: 158 64% 40%;          /* emerald #10B981 */
+    --primary-foreground: 0 0% 98%;
+  }
+  .dark {
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --border: 0 0% 14.9%;
+    --primary: 158 64% 40%;          /* emerald #10B981 */
+    --primary-foreground: 0 0% 98%;
+  }
 }
-.dark {
-  --primary: 239 84% 67%;
-  --primary-foreground: 0 0% 98%;
-}
+
+* { @apply border-border; }
+body { @apply bg-background text-foreground; }
 ```
 
-(Convertir hex → HSL antes de pegar. Usa https://hslpicker.com o `oklch`.)
-
-- [ ] **Step 6: Activar dark mode default**
-
-Editar `app/layout.tsx`. Agregar `className="dark"` al `<html>`:
-
+`app/layout.tsx` (dark mode default activado):
 ```tsx
+import './globals.css';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = { title: 'OneTable', description: 'Portal de portales para retail' };
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className="dark">
-      <body className={`${inter.className} bg-background text-foreground`}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
 ```
 
-- [ ] **Step 7: Smoke visual del accent**
-
-Editar `app/page.tsx` temporalmente para mostrar un Button shadcn:
-
-```bash
-pnpm dlx shadcn@latest add button
-```
-
-Reemplazar `app/page.tsx` contenido por:
-
+`app/page.tsx` (smoke del accent — plain `<button>` con Tailwind, sin shadcn Button todavía):
 ```tsx
-import { Button } from "@/components/ui/button";
-
 export default function Home() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background">
-      <Button>Accent color test</Button>
+    <main className="flex min-h-screen items-center justify-center">
+      <button className="bg-primary text-primary-foreground px-6 py-3 rounded-md font-medium">
+        OneTable — emerald accent test
+      </button>
     </main>
   );
 }
 ```
 
-Verificar visualmente:
-```bash
-pnpm dev
-```
-Open http://localhost:3000. Expected: fondo dark, botón con accent color visible.
+- [ ] **Step 5: Crear `lib/utils.ts` (cn() helper, sin shadcn CLI)**
 
-- [ ] **Step 8: Verificación del Gate G0 (checklist binaria)**
+Necesita `clsx` + `tailwind-merge`. ESTO REQUIERE 2 deps adicionales fuera de la lista pineada — **PARAR antes de agregarlas y reportar al usuario**.
 
-- [ ] `pnpm dev` arranca sin errores
-- [ ] Página default renderiza en dark mode (fondo oscuro)
-- [ ] Accent color visible en el Button test
-- [ ] `pnpm build` pasa sin warnings de TypeScript
-- [ ] `components.json` existe con `style: default, baseColor: neutral, cssVariables: true`
-- [ ] `pnpm dlx shadcn@latest add card` agrega sin error (sanity check)
+Si el usuario aprueba (versiones a usar):
+- `clsx@2.1.1`
+- `tailwind-merge@2.5.5`
 
-- [ ] **Step 9: Commit**
+Agregar a `package.json` `dependencies` y luego:
 
-```bash
-git add .
-git commit -m "feat(bootstrap): init Next.js 14 + shadcn + dark theme with $ACCENT_COLOR accent"
+```ts
+// lib/utils.ts
+import { type ClassValue, clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 ```
 
-Reemplazar `$ACCENT_COLOR` por la decisión PD2.
+**Status decisión: BLOQUEANTE.** El subagente debe parar y consultar usuario antes de continuar Step 5.
+
+- [ ] **Step 6: Crear `components.json` (shadcn config a mano)**
+
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "default",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "app/globals.css",
+    "baseColor": "neutral",
+    "cssVariables": true
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils"
+  }
+}
+```
+
+- [ ] **Step 7: Primer `pnpm install --ignore-scripts`**
+
+PRE-check supply chain:
+```bash
+./scripts/check-supply-chain.sh
+```
+Expected: ✅ Clean.
+
+Install:
+```bash
+pnpm install --ignore-scripts
+```
+Expected: `pnpm-lock.yaml` creado. Sin postinstall hooks ejecutados.
+
+POST-check supply chain:
+```bash
+./scripts/check-supply-chain.sh
+grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|lightning" pnpm-lock.yaml && echo "❌ SUSPICIOUS" || echo "✅ lockfile clean (no suspicious pkgs)"
+grep -E "router_init|setup\.mjs|router_runtime" pnpm-lock.yaml && echo "❌ SUSPICIOUS" || echo "✅ lockfile clean (no infection markers)"
+```
+Expected: tres `✅`. Si alguno falla → PARAR + notificar.
+
+- [ ] **Step 8: Verificar dev + build**
+
+```bash
+pnpm dev &
+DEV_PID=$!
+sleep 5
+curl -sf http://localhost:3000 > /dev/null && echo "✅ dev OK" || echo "❌ dev failed"
+kill $DEV_PID
+pnpm build
+```
+Expected: `dev OK` + build sin errores TS.
+
+- [ ] **Step 9: Verificación visual manual (Gate G0 checklist §7.2.1 G2-derived + G0-specific)**
+
+Correr `pnpm dev`, abrir Chrome en http://localhost:3000:
+
+- [ ] Fondo dark (oscuro)
+- [ ] Botón visible con color emerald `#10B981` (verde-azulado vibrante)
+- [ ] Sin errores rojos en DevTools console
+- [ ] `pnpm build` exit code 0 (verificado Step 8)
+- [ ] `components.json` existe con `baseColor: neutral, cssVariables: true`
+- [ ] `package.json` tiene 0 caret/tilde versions (verificado Step 2)
+- [ ] `scripts/check-supply-chain.sh` existe, es ejecutable, pasa
+- [ ] `pnpm-lock.yaml` existe y está commiteado
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add scripts/ package.json pnpm-lock.yaml tsconfig.json next.config.mjs \
+        tailwind.config.ts postcss.config.mjs .eslintrc.json .gitignore \
+        app/ lib/ components.json
+git commit -m "feat(bootstrap): manual scaffold Next.js 14 + emerald theme + supply-chain hardening (G0 ✓)"
+```
 
 ---
 
-### Task S0 — Dependencies + Prisma init + Vitest harness
+### Task S0 — Prisma init + Vitest config + folder structure + scripts
 
-**Tipo:** Sprint (TDD-aplicable: verificación binaria por comando).
+**Tipo:** Sprint.
 **Estimado:** 1h.
-**Spec ref:** §1 (stack), §6.1 (scripts package.json), §2 (Prisma schema preview).
-**Upstream deps:** G0.
+**Spec ref:** §6.1 (scripts package.json), §2 (Prisma schema preview).
+**Upstream deps:** G0 (todas las deps runtime+dev ya instaladas con `--ignore-scripts` en G0).
 **Downstream deps:** S1.
+**Binary pass:** `pnpm prisma --version` retorna `6.19.3`; `pnpm test` reporta `No test files found` sin error; todas las carpetas core/ y tests/ existen.
 
 **Files:**
-- Modify: `package.json` (deps + scripts + `prisma.seed`).
-- Create: `prisma/schema.prisma` (init mínimo).
-- Create: `.env.example` (si no existe; agregar `DATABASE_URL` placeholder).
+- Modify: `package.json` (agregar scripts db:seed/db:reset/preflight + `prisma.seed` block).
+- Create: `prisma/schema.prisma` (mínimo — provider + datasource).
+- Create: `.env.example` (si no existe; agregar `DATABASE_URL` placeholder + `AUTH_SECRET` placeholder + `PREFLIGHT_DATABASE_URL` placeholder).
 - Create: `vitest.config.ts`.
-- Create: directorios vacíos `core/parsers/`, `core/normalizer/`, `core/catalog/`, `core/kpis/`, `core/alerts/`, `lib/`, `scripts/`, `tests/parsers/`, `tests/fixtures/` (cada uno con `.gitkeep`).
+- Create: directorios vacíos con `.gitkeep` en `core/parsers/`, `core/normalizer/`, `core/catalog/`, `core/kpis/`, `core/alerts/`, `core/dates/`, `tests/parsers/`, `tests/fixtures/`. (`lib/` y `scripts/` ya existen.)
 
-- [ ] **Step 1: Instalar runtime deps**
+> **NO se instala nada nuevo en S0.** Todas las deps están en G0. Si surgiera necesidad de un paquete adicional, aplicar mitigación #6 y consultar al usuario.
 
-```bash
-pnpm add prisma @prisma/client \
-  next-auth@5.0.0-beta.XX \
-  recharts xlsx papaparse bcryptjs \
-  @auth/prisma-adapter
-```
-
-Reemplazar `XX` por la decisión PD1.
-
-Expected: `package.json` actualizado, install exitoso.
-
-- [ ] **Step 2: Instalar dev deps**
+- [ ] **Step 1: Crear estructura de carpetas**
 
 ```bash
-pnpm add -D vitest @vitest/coverage-v8 tsx \
-  @types/node @types/bcryptjs @types/papaparse
+mkdir -p core/parsers core/normalizer core/catalog core/kpis core/alerts core/dates
+mkdir -p tests/parsers tests/fixtures
+touch core/parsers/.gitkeep core/normalizer/.gitkeep core/catalog/.gitkeep \
+      core/kpis/.gitkeep core/alerts/.gitkeep core/dates/.gitkeep \
+      tests/parsers/.gitkeep tests/fixtures/.gitkeep
 ```
 
-- [ ] **Step 3: Inicializar Prisma**
+- [ ] **Step 2: Inicializar Prisma (sin install)**
 
 ```bash
-pnpm dlx prisma init --datasource-provider postgresql
+pnpm exec prisma init --datasource-provider postgresql
 ```
 
-Expected: `prisma/schema.prisma` creado, `.env` creado con `DATABASE_URL=...` placeholder.
+`pnpm exec` usa el binario `prisma` ya instalado en G0, NO ejecuta `dlx` (que descargaría temp).
 
-Si `.env` ya existe (Probable: usuario ya tiene `.env.local`), Prisma agrega a `.env`. Mover el valor a `.env.local` y dejar `.env` vacío o ignorarlo en gitignore.
+Expected: `prisma/schema.prisma` creado, mensaje sugiriendo agregar `DATABASE_URL` a `.env`.
 
-- [ ] **Step 4: Crear vitest.config.ts**
+Si `.env` se creó automáticamente con placeholder, BORRARLO si conflictúa con `.env.local` existente del usuario. La fuente de verdad es `.env.local`.
+
+- [ ] **Step 3: Verificar/crear `.env.example`**
+
+Si `.env.example` ya existe, agregar las vars que falten. Si no existe:
+
+```bash
+cat > .env.example <<'ENV'
+# Neon Postgres connection string (project DB)
+DATABASE_URL="postgresql://user:pass@host/db?sslmode=require"
+
+# NextAuth v5 secret (genera con: openssl rand -base64 32)
+AUTH_SECRET=""
+AUTH_TRUST_HOST="true"
+
+# Pre-flight DB (segunda Neon branch para validar uploads antes del demo)
+PREFLIGHT_DATABASE_URL=""
+ENV
+```
+
+- [ ] **Step 4: Crear `vitest.config.ts`**
 
 ```typescript
 // vitest.config.ts
 import { defineConfig } from 'vitest/config';
+import { resolve } from 'node:path';
 
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
-    coverage: {
-      provider: 'v8',
-      include: ['core/**/*.ts'],
-    },
+    coverage: { provider: 'v8', include: ['core/**/*.ts'] },
   },
   resolve: {
-    alias: {
-      '@': new URL('.', import.meta.url).pathname,
-    },
+    alias: { '@': resolve(__dirname, '.') },
   },
 });
 ```
 
-- [ ] **Step 5: Crear estructura de carpetas**
+- [ ] **Step 5: Actualizar scripts en `package.json`**
 
-```bash
-mkdir -p core/parsers core/normalizer core/catalog core/kpis core/alerts core/dates
-mkdir -p lib scripts tests/parsers tests/fixtures
-touch core/parsers/.gitkeep core/normalizer/.gitkeep core/catalog/.gitkeep \
-      core/kpis/.gitkeep core/alerts/.gitkeep core/dates/.gitkeep \
-      lib/.gitkeep scripts/.gitkeep tests/parsers/.gitkeep tests/fixtures/.gitkeep
-```
-
-- [ ] **Step 6: Agregar scripts a package.json**
-
-Editar `package.json` para incluir scripts y `prisma` block (per spec §6.1 corregido):
+Editar `package.json` para agregar (manteniendo los scripts existentes):
 
 ```json
 {
@@ -316,27 +611,34 @@ Editar `package.json` para incluir scripts y `prisma` block (per spec §6.1 corr
 }
 ```
 
-- [ ] **Step 7: Verificación binaria del Sprint S0**
+- [ ] **Step 6: Verificación binaria del Sprint S0**
 
 ```bash
-pnpm test 2>&1 | tee /tmp/s0-test.log
 pnpm prisma --version
+pnpm test 2>&1 | tee /tmp/s0-test.log
 pnpm build
-ls core/parsers core/normalizer core/catalog core/kpis core/alerts \
-   lib scripts tests/parsers tests/fixtures
+ls -d core/parsers core/normalizer core/catalog core/kpis core/alerts core/dates \
+      tests/parsers tests/fixtures
 ```
 
 Expected:
-- `pnpm test` → "No test files found" o "0 passed" (sin error).
-- `pnpm prisma --version` → versión impresa.
-- `pnpm build` → build OK.
-- Todas las carpetas existen.
+- `pnpm prisma --version` → `prisma : 6.19.3` (sin descargar binarios extra; usa el del install).
+- `pnpm test` → "No test files found" (sin error fatal).
+- `pnpm build` → exit 0.
+- Todas las carpetas listadas existen.
+
+- [ ] **Step 7: Verificar supply chain (no nuevos installs pero por hábito)**
+
+```bash
+./scripts/check-supply-chain.sh
+```
+Expected: ✅ Clean.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add .
-git commit -m "feat(s0): install deps, init Prisma, configure Vitest, create core/ layout"
+git add prisma/ vitest.config.ts package.json .env.example core/ tests/
+git commit -m "feat(s0): Prisma init + Vitest config + core/ folder structure + scripts"
 ```
 
 ---
