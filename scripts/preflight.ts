@@ -82,11 +82,20 @@ type PreflightUpload = {
   parser: PortalParser;
 };
 
+// H2 migration: switched from *-sample.xlsx (synthetic, ~60 rows total) to
+// *-real.xlsx (VIKS production extracts, ~3,200 rows total). Rationale:
+//   • Exercises the full pipeline at demo-day scale, end-to-end.
+//   • Surfaces perf regressions before they bite live on stage.
+//   • Validates the batched normalizer (H2) against realistic row volumes.
+// The *-sample.xlsx fixtures stay in the tree for parser unit tests
+// (tests/parsers/*.test.ts), which assert exact row-by-row expected output
+// against deterministic small inputs.
+// Note exact filename casing: Chedraui-real.xlsx has a capital C.
 const UPLOADS: PreflightUpload[] = [
-  { chain: 'SORIANA', fileType: 'MIXED', file: 'soriana-sample.xlsx', parser: sorianaParser },
-  { chain: 'CHEDRAUI', fileType: 'MIXED', file: 'chedraui-sample.xlsx', parser: chedrauiParser },
-  { chain: 'AMAZON', fileType: 'VENTAS', file: 'amazon-ventas-sample.xlsx', parser: amazonVentasParser },
-  { chain: 'AMAZON', fileType: 'INVENTARIO', file: 'amazon-inv-sample.xlsx', parser: amazonInvParser },
+  { chain: 'SORIANA', fileType: 'MIXED', file: 'soriana-real.xlsx', parser: sorianaParser },
+  { chain: 'CHEDRAUI', fileType: 'MIXED', file: 'Chedraui-real.xlsx', parser: chedrauiParser },
+  { chain: 'AMAZON', fileType: 'VENTAS', file: 'amazon-ventas-real.xlsx', parser: amazonVentasParser },
+  { chain: 'AMAZON', fileType: 'INVENTARIO', file: 'amazon-inv-real.xlsx', parser: amazonInvParser },
 ];
 
 function banner(): void {
@@ -155,7 +164,7 @@ async function main(): Promise<void> {
 
     // ── Phase 4 — Normalize each parsed result ────────────────────────────
     phase(4, 'Normalize each parsed result (UPSERT into SelloutData)');
-    const normalizeStats: Array<{ file: string; inserted: number; updated: number; unmapped: number }> = [];
+    const normalizeStats: Array<{ file: string; inserted: number; updated: number; unmapped: number; elapsedMs: number }> = [];
     for (const { upload: u, parsed, buffer } of parsedByFile) {
       // One Upload row per file, ad-hoc — preflight isn't testing the upload
       // pipeline UX, just the normalize contract.
@@ -171,6 +180,7 @@ async function main(): Promise<void> {
           status: 'PENDING',
         },
       });
+      const t0 = Date.now();
       const stats = await normalize(
         {
           clientId: client.id,
@@ -181,15 +191,18 @@ async function main(): Promise<void> {
         },
         db,
       );
+      const elapsedMs = Date.now() - t0;
       console.log(
         `[preflight] ✓ ${u.file}: inserted=${stats.rowsInserted} updated=${stats.rowsUpdated} ` +
-          `unmapped=${stats.rowsUnmapped} newUnmapped=${stats.newUnmappedProducts}`,
+          `unmapped=${stats.rowsUnmapped} newUnmapped=${stats.newUnmappedProducts} ` +
+          `elapsed=${elapsedMs}ms`,
       );
       normalizeStats.push({
         file: u.file,
         inserted: stats.rowsInserted,
         updated: stats.rowsUpdated,
         unmapped: stats.rowsUnmapped,
+        elapsedMs,
       });
     }
 
@@ -276,7 +289,9 @@ async function main(): Promise<void> {
     for (const p of parsedByFile) console.log(`    ${p.upload.file}: ${p.parsed.rows.length}`);
     console.log('  Normalize stats:');
     for (const s of normalizeStats) {
-      console.log(`    ${s.file}: inserted=${s.inserted} updated=${s.updated} unmapped=${s.unmapped}`);
+      console.log(
+        `    ${s.file}: inserted=${s.inserted} updated=${s.updated} unmapped=${s.unmapped} elapsed=${s.elapsedMs}ms`,
+      );
     }
     console.log(`  SelloutData total: ${selloutCount}`);
     console.log(`  UnmappedProduct total: ${unmappedCount}`);

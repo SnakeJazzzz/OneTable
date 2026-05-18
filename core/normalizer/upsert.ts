@@ -1,6 +1,14 @@
-import type { Prisma, Chain } from '@prisma/client';
+import { Prisma, type Chain } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
+/**
+ * Row shape consumed by batched SelloutData UPSERT.
+ *
+ * NOTE: Pre-H2 this module exposed a row-by-row helper (`upsertSelloutRow`).
+ * That helper has been removed in favor of `batchUpsertSelloutRows` below —
+ * the single-row UPSERT inside `$transaction` was the root cause of P2028
+ * timeouts on real fixtures (Soriana 2,636 rows × ~165ms = 7+ minutes).
+ */
 export type SelloutRowInput = {
   clientId: string;
   userId: string;
@@ -25,11 +33,66 @@ export type SelloutRowInput = {
   daysOfInventory: number | null;
 };
 
-export async function upsertSelloutRow(
+/**
+ * Generate a cuid-shaped id matching the original row-by-row helper.
+ * Kept inline (vs `@paralleldrive/cuid2` or similar) to avoid a new dep —
+ * supply chain mitigation #6.
+ */
+function makeCuid(): string {
+  return `c${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+}
+
+/**
+ * Batched UPSERT for SelloutData.
+ *
+ * One SQL statement covers up to BATCH_SIZE rows. Postgres parameter cap is
+ * 65,535 per query; SelloutData has 22 insertable columns (id + 21 fields),
+ * so BATCH_SIZE=500 → 11,000 params (safe). BATCH_SIZE can be raised to
+ * ~2,500 before hitting the cap.
+ *
+ * Returns the inserted/updated split via `(xmax = 0)` — true for inserts
+ * (no prior row), false for updates (existing row collided on the unique
+ * index). See https://www.postgresql.org/docs/current/ddl-system-columns.html
+ *
+ * COALESCE semantics on the UPDATE side match the pre-H2 row-by-row helper
+ * verbatim (spec §2.3 + AJUSTE 5).
+ */
+export async function batchUpsertSelloutRows(
   tx: Prisma.TransactionClient,
-  row: SelloutRowInput,
-): Promise<{ action: 'inserted' | 'updated' }> {
-  const id = `c${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+  rows: SelloutRowInput[],
+): Promise<{ inserted: number; updated: number }> {
+  if (rows.length === 0) return { inserted: 0, updated: 0 };
+
+  const valueTuples = rows.map((r) => {
+    const id = makeCuid();
+    return Prisma.sql`(
+      ${id},
+      ${r.clientId},
+      ${r.userId},
+      ${r.uploadId},
+      ${r.periodYear},
+      ${r.periodMonth},
+      ${r.periodDate},
+      ${r.chain}::"Chain",
+      ${r.productId},
+      ${r.portalRawProduct},
+      ${r.storeId},
+      ${r.storeName},
+      ${r.storeFormat},
+      ${r.salesUnits ?? null},
+      ${r.salesUnitsEstimated ?? false},
+      ${r.salesAmountMxn ?? null},
+      ${r.purchasesUnits ?? null},
+      ${r.purchasesAmountMxn ?? null},
+      ${r.inventoryUnits ?? null},
+      ${r.inventoryAmountCostMxn ?? null},
+      ${r.inventoryAmountPriceMxn ?? null},
+      ${r.daysOfInventory},
+      NOW(),
+      NOW()
+    )`;
+  });
+
   const result = await tx.$queryRaw<Array<{ inserted_flag: boolean }>>`
     INSERT INTO "SelloutData" (
       id, "clientId", "userId", "uploadId",
@@ -40,16 +103,8 @@ export async function upsertSelloutRow(
       "purchasesUnits", "purchasesAmountMxn",
       "inventoryUnits", "inventoryAmountCostMxn", "inventoryAmountPriceMxn",
       "daysOfInventory", "createdAt", "updatedAt"
-    ) VALUES (
-      ${id}, ${row.clientId}, ${row.userId}, ${row.uploadId},
-      ${row.periodYear}, ${row.periodMonth}, ${row.periodDate},
-      ${row.chain}::"Chain", ${row.productId}, ${row.portalRawProduct},
-      ${row.storeId}, ${row.storeName}, ${row.storeFormat},
-      ${row.salesUnits ?? null}, ${row.salesUnitsEstimated ?? false}, ${row.salesAmountMxn ?? null},
-      ${row.purchasesUnits ?? null}, ${row.purchasesAmountMxn ?? null},
-      ${row.inventoryUnits ?? null}, ${row.inventoryAmountCostMxn ?? null}, ${row.inventoryAmountPriceMxn ?? null},
-      ${row.daysOfInventory}, NOW(), NOW()
     )
+    VALUES ${Prisma.join(valueTuples)}
     ON CONFLICT ("clientId", chain, "storeId", "portalRawProduct", "periodYear", "periodMonth") DO UPDATE SET
       "uploadId"               = EXCLUDED."uploadId",
       "productId"              = COALESCE(EXCLUDED."productId", "SelloutData"."productId"),
@@ -68,28 +123,76 @@ export async function upsertSelloutRow(
       "updatedAt"              = NOW()
     RETURNING (xmax = 0) AS inserted_flag;
   `;
-  return { action: result[0].inserted_flag ? 'inserted' : 'updated' };
+
+  let inserted = 0;
+  let updated = 0;
+  for (const r of result) {
+    if (r.inserted_flag) inserted++;
+    else updated++;
+  }
+  return { inserted, updated };
 }
 
-export async function upsertUnmapped(
+export type UnmappedAggregate = {
+  chain: Chain;
+  portalString: string;
+  firstSeenUploadId: string;
+  occurrenceCount: number;
+};
+
+/**
+ * Batched UPSERT for UnmappedProduct.
+ *
+ * Accumulates `occurrenceCount` correctly across re-uploads:
+ *   ON CONFLICT … SET "occurrenceCount" = existing + EXCLUDED
+ *
+ * `firstSeenUploadId` is kept stable across re-uploads (no overwrite).
+ *
+ * Returns the count of newly-inserted rows via `(xmax = 0)`.
+ *
+ * The caller is responsible for deduplicating (chain, portalString) within
+ * the batch and summing occurrenceCount per-pair before calling — otherwise
+ * the same (clientId, chain, portalString) key would appear twice in the
+ * INSERT and Postgres rejects that as "ON CONFLICT DO UPDATE command
+ * cannot affect row a second time".
+ */
+export async function batchUpsertUnmapped(
   tx: Prisma.TransactionClient,
   clientId: string,
-  chain: Chain,
-  portalString: string,
-  uploadId: string,
-): Promise<{ isNew: boolean }> {
-  const existing = await tx.unmappedProduct.findUnique({
-    where: { clientId_chain_portalString: { clientId, chain, portalString } },
+  aggregates: UnmappedAggregate[],
+): Promise<{ newCount: number }> {
+  if (aggregates.length === 0) return { newCount: 0 };
+
+  const valueTuples = aggregates.map((a) => {
+    const id = makeCuid();
+    return Prisma.sql`(
+      ${id},
+      ${clientId},
+      ${a.chain}::"Chain",
+      ${a.portalString},
+      ${a.firstSeenUploadId},
+      ${a.occurrenceCount},
+      NOW(),
+      NOW()
+    )`;
   });
-  if (existing) {
-    await tx.unmappedProduct.update({
-      where: { id: existing.id },
-      data: { occurrenceCount: existing.occurrenceCount + 1 },
-    });
-    return { isNew: false };
+
+  const result = await tx.$queryRaw<Array<{ inserted_flag: boolean }>>`
+    INSERT INTO "UnmappedProduct" (
+      id, "clientId", chain, "portalString",
+      "firstSeenUploadId", "occurrenceCount",
+      "createdAt", "updatedAt"
+    )
+    VALUES ${Prisma.join(valueTuples)}
+    ON CONFLICT ("clientId", chain, "portalString") DO UPDATE SET
+      "occurrenceCount" = "UnmappedProduct"."occurrenceCount" + EXCLUDED."occurrenceCount",
+      "updatedAt"       = NOW()
+    RETURNING (xmax = 0) AS inserted_flag;
+  `;
+
+  let newCount = 0;
+  for (const r of result) {
+    if (r.inserted_flag) newCount++;
   }
-  await tx.unmappedProduct.create({
-    data: { clientId, chain, portalString, firstSeenUploadId: uploadId, occurrenceCount: 1 },
-  });
-  return { isNew: true };
+  return { newCount };
 }
