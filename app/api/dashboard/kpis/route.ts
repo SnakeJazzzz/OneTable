@@ -5,11 +5,12 @@
  *   ?periodYear=YYYY  (e.g. 2025)
  *   ?periodMonth=M    (1–12)
  *
- * If either is missing or unparseable, the route auto-detects the LATEST
- * (year, month) present in SelloutData for this client. If the client has
- * zero rows yet, the response returns zeroed KPIs + empty arrays and a
- * `noData: true` flag so the frontend can render an empty state instead of
- * crashing on `undefined.salesAmountMxn`.
+ * If either is missing or unparseable, the route resolves the default via
+ * `getDefaultPeriod`: the most recent period with ≥2 chains of data (S12.1).
+ * Falls back to the latest period overall if no multi-chain period exists.
+ * If the client has zero rows yet, the response returns zeroed KPIs + empty
+ * arrays and a `noData: true` flag so the frontend can render an empty state
+ * instead of crashing on `undefined.salesAmountMxn`.
  *
  * Auth: required. clientId + userId are taken from the JWT and passed to the
  * S8 query helpers, which enforce the (clientId, userId) WHERE doubled-belt.
@@ -27,6 +28,7 @@ import {
   getInventorySemaforo,
   getTopSkusByChain,
   getDaysOfInventoryBySku,
+  getDefaultPeriod,
 } from '@/core/kpis/queries';
 
 const TOP_SKUS_LIMIT = 5;
@@ -48,15 +50,13 @@ export async function GET(req: Request): Promise<Response> {
   let periodYear = parsePeriodParam(url.searchParams.get('periodYear'), 2000, 2100);
   let periodMonth = parsePeriodParam(url.searchParams.get('periodMonth'), 1, 12);
 
-  // Auto-detect latest period if params absent or invalid.
+  // Auto-detect period if params absent or invalid. Prefer the most recent
+  // multi-chain period (S12.1) so the dashboard doesn't open on a single-chain
+  // snapshot when other portals have older but richer data.
   if (periodYear === null || periodMonth === null) {
-    const latest = await db.selloutData.findFirst({
-      where: { clientId, userId },
-      orderBy: [{ periodYear: 'desc' }, { periodMonth: 'desc' }],
-      select: { periodYear: true, periodMonth: true },
-    });
+    const defaultPeriod = await getDefaultPeriod(db, { clientId, userId });
 
-    if (!latest) {
+    if (!defaultPeriod) {
       // No data at all — empty-state response.
       return Response.json({
         noData: true,
@@ -74,8 +74,8 @@ export async function GET(req: Request): Promise<Response> {
         daysInv: [],
       });
     }
-    periodYear = latest.periodYear;
-    periodMonth = latest.periodMonth;
+    periodYear = defaultPeriod.periodYear;
+    periodMonth = defaultPeriod.periodMonth;
   }
 
   const baseParams = { clientId, userId };

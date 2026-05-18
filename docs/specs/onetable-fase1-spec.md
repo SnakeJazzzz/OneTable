@@ -1073,6 +1073,18 @@ WHERE "clientId" = $1 AND "userId" = $2;
 
 **Razón de incluir `userId` en el WHERE:** doble-cinturón. Aunque `clientId` ya garantiza tenant scoping (el cliente pertenece al user logueado), filtrar también por `userId` previene bugs donde un endpoint olvide checkear ownership del client.
 
+### 9.3 Default period resolution (S12.1)
+
+Cuando el endpoint `GET /api/dashboard/kpis` se invoca SIN query params explícitos (`periodYear`, `periodMonth`), el route debe resolver el "default period" así:
+
+1. **Primario:** último `(periodYear, periodMonth)` donde al menos **2 cadenas** tengan filas en `SelloutData` para ese `clientId`. Esto evita que el dashboard abra mostrando solo una cadena cuando otros portales tienen data más antigua pero más rica.
+2. **Fallback:** si ningún periodo tiene cobertura multi-chain, último periodo presente (cualquiera).
+3. **Vacío:** si el cliente no tiene `SelloutData` rows, devolver `{ noData: true, period: null, ... }` con KPIs en cero y arrays vacíos.
+
+**Implementación:** `getDefaultPeriod(db, { clientId, userId })` en `core/kpis/queries.ts`. Single round-trip SQL con `UNION ALL` priorizando multi-chain sobre single-chain.
+
+**Razón:** real VIKS data tiene staggered portal coverage (Soriana llega a 2026-03 pero Chedraui/Amazon solo a 2026-01). Sin esta lógica, el default abriría en 2026-03 con 5 SKU-buckets solo de Soriana, en vez de los 21 multi-chain de 2026-01. El usuario puede pasar `?periodYear=2026&periodMonth=3` explícitamente desde el selector del dashboard para ver Soriana sola si quiere.
+
 ---
 
 ## 10. Items fuera de scope (notas para Fase 2)

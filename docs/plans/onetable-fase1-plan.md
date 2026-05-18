@@ -2888,6 +2888,47 @@ Ambas deben resolverse antes de empezar G0 Step 5.
 
 ---
 
+## Decisiones de scope post-S12 (consolidadas pre-G1)
+
+### Feature diferidas a Fase 2
+
+- **Thresholds configurables por cliente.** Defaults actuales en `core/alerts/classify.ts` son hardcoded y representan benchmarks de retail estándar (SIN_STOCK: `inv ≤ 0`, CRITICO: `<7d`, RIESGO: `7-14d`, ATENCION: `14-21d`, OK: `21-60d`, EXCESO: `>60d`). Demo del martes los presenta como configurables "en el próximo sprint". Implementación futura requiere: tabla `ThresholdConfig` per client, endpoint `GET/PATCH /api/config/thresholds`, refactor `classifyAlert` para aceptar config como param, UI de configuración. Estimación: 4-6h con TDD.
+
+- **CRUD adicional de clients.** `POST /api/clients`, `PATCH /api/clients/[id]`, `DELETE /api/clients/[id]` difiere para G6 (Clientes page) post-demo.
+
+- **Catalog import endpoint.** `POST /api/catalog/import` difiere para G7 (Catálogo page) post-demo. Reusa `core/catalog/import.ts` (S6) ya listo.
+
+- **Resolve-unmapped endpoint.** `POST /api/catalog/resolve-unmapped` difiere para G7 post-demo. Reusa el backfill logic del normalizer (S7).
+
+### Hallazgos de data real (para guión del demo)
+
+- **Distribución del semáforo es bimodal:** 57% SIN_STOCK+CRITICO, 43% OK+EXCESO, **cero RIESGO/ATENCION**. Refleja ciclo de restock mensual de retailers (saltan de OK a SIN_STOCK sin transición semanal). Es la historia comercial central del demo: "su data muestra 57% de SKUs ya agotados o casi — necesitan visibility ANTES del próximo restock, no después".
+
+- **Soriana real tiene 7 `inv < 0`** (ajustes contables, devoluciones, reconciliation gaps). H1 las clasifica como SIN_STOCK correctamente.
+
+- **Soriana real tiene 56 filas con `inv NULL`** (celdas vacías en Excel). Interpretación abierta: podría ser stockouts disfrazados por el export del portal, o data genuinamente no reportada. Decisión actual: `null → SIN_DATOS`. Investigar con VIKS post-demo si quieren que `null → SIN_STOCK`.
+
+- **Default de período del dashboard** es ahora "último con multi-chain coverage" (S12.1). Producción: 2026-01 con 21 SKU-buckets. Si solo hay un período single-chain, fallback al último presente. Documentado en spec §9.3.
+
+### Requisitos derivados para G5 (Análisis)
+
+- Tabla debe permitir drill-down store-level (SKU × tienda × alerta) — el backend ya lo soporta vía las queries de S8 + classifyAlert per-row.
+- Filtros por cadena, tienda, SKU, nivel de alerta.
+- Paginación cliente-side (3,188 rows reales caben en memoria, no requiere server-side).
+- Vista alternativa "ver por tienda" sería ideal (ranking de tiendas con más SKUs en alerta) pero diferible si tiempo aprieta.
+
+### Tech-debt cola consolidada (post-demo, no antes)
+
+| Categoría | Items |
+|---|---|
+| Error handling (S12 polish) | Sanitize `err.message` en upload route + agregar `console.error` server-side |
+| F2 cleanup | Remove `@auth/prisma-adapter` (unused), extract `loadEnvLocal` util a `lib/load-env.ts` (rule-of-3 alcanzada), fix `as never` cast en log levels en `tests/normalizer/batch.test.ts` |
+| Doc drift | Spec §2.3 timeout pseudocode 30s → 120s actualizar, plan stub `:1858` dice "16 products" (real: 15) |
+| Latent F2 | `upsertUnmapped` race (mitigada por batch dedup, verificar bajo concurrencia real), `scripts/preflight.ts:312` bare `main()` sin `.catch()` |
+| In-batch dup guard | Comment defensivo en `batchUpsertSelloutRows` sobre Postgres "ON CONFLICT cannot affect row a second time" si parsers algún día emiten dups |
+
+---
+
 ## Self-Review
 
 **Spec coverage check** (skim por sección del spec y mapear a tasks):

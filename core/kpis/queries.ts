@@ -31,6 +31,52 @@ type BaseParams = { clientId: string; userId: string };
 type PeriodParams = BaseParams & { periodYear: number; periodMonth: number };
 
 // =====================================================================
+// Default period resolution (S12.1)
+// =====================================================================
+
+// Returns the most recent period where ≥2 chains have SelloutData for this
+// client. Falls back to the latest period overall if no multi-chain period
+// exists. Returns null if the client has no data at all.
+//
+// Why: real VIKS data has staggered portal coverage — Soriana reports through
+// 2026-03 but Chedraui + Amazon only through 2026-01. Without this, the
+// dashboard default would open on 2026-03 showing only Soriana (5 buckets vs
+// the 21 multi-chain buckets the user expects to see).
+export async function getDefaultPeriod(
+  db: PrismaClient,
+  params: BaseParams,
+): Promise<{ periodYear: number; periodMonth: number } | null> {
+  const { clientId, userId } = params;
+
+  // Single round-trip: multi-chain preferred, single-chain fallback, sorted by
+  // priority then recency. Postgres handles the UNION ALL + ORDER BY in one pass.
+  const rows = await db.$queryRaw<Array<{ y: number; m: number; priority: number }>>`
+    (
+      SELECT "periodYear" AS y, "periodMonth" AS m, 1 AS priority
+      FROM "SelloutData"
+      WHERE "clientId" = ${clientId} AND "userId" = ${userId}
+      GROUP BY "periodYear", "periodMonth"
+      HAVING COUNT(DISTINCT chain) >= 2
+      ORDER BY "periodYear" DESC, "periodMonth" DESC
+      LIMIT 1
+    )
+    UNION ALL
+    (
+      SELECT "periodYear" AS y, "periodMonth" AS m, 2 AS priority
+      FROM "SelloutData"
+      WHERE "clientId" = ${clientId} AND "userId" = ${userId}
+      ORDER BY "periodYear" DESC, "periodMonth" DESC
+      LIMIT 1
+    )
+    ORDER BY priority ASC
+    LIMIT 1
+  `;
+
+  if (rows.length === 0) return null;
+  return { periodYear: Number(rows[0].y), periodMonth: Number(rows[0].m) };
+}
+
+// =====================================================================
 // KPIs (4 cards) — spec §9.1
 // =====================================================================
 
