@@ -298,7 +298,7 @@ model SelloutData {
   inventoryUnits          Int?
   inventoryAmountCostMxn  Decimal? @db.Decimal(12, 2)
   inventoryAmountPriceMxn Decimal? @db.Decimal(12, 2)
-  daysOfInventory         Int?     // dado (AL SUPER) o calculado al query
+  daysOfInventory         Int?     // SOLO se persiste cuando el portal lo provee explícitamente (AL SUPER en Fase 2). Para todo lo demás permanece NULL y se calcula al query con CASE WHEN salesUnits > 0 THEN (inventoryUnits::float / salesUnits) * 30 ELSE NULL END
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -588,9 +588,9 @@ export type NormalizationStats = {
 1. **Resolver mapping** por cada row del `ParserResult`.
 2. **UPSERT en `SelloutData`** con COALESCE per campo (§2.3).
 3. **Rastrear unmapped:** si `productId === null`, INSERT/UPDATE `UnmappedProduct` (incrementa `occurrenceCount`).
-4. **Calcular `daysOfInventory` al insert** si el portal NO lo provee y `salesUnits > 0` y `inventoryUnits != null`. Si parser lo provee (AL SUPER), respetar.
+4. **NO calcular `daysOfInventory` al insert.** El normalizer respeta el valor que provea el parser (caso AL SUPER en Fase 2) y lo pasa tal cual. Si el parser no lo provee, persiste como NULL. El cálculo se hace al query con `CASE WHEN salesUnits > 0 THEN (inventoryUnits::float / salesUnits) * 30 ELSE NULL END`.
 
-   > Esto contradice D4 que dice "calcular al query, no al insert". Excepción: `daysOfInventory` es un campo derivado pero estable por row (no agregado), por eso conviene precomputarlo. Las KPIs agregadas (variación %, totales, alertas activas) sí se calculan al query.
+   > Esto respeta D4 sin excepciones. Razón: con UPSERT + COALESCE, un upload solo de inventario puede llegar antes que uno de ventas. Si `daysOfInventory` se calculara al insert con `salesUnits=NULL`, quedaría NULL aún después de recibir ventas, porque el UPSERT no recomputa campos derivados. Calcular al query elimina la asimetría.
 
 5. **NO calcular alert** al insert. Alert es 100% derivada de `daysOfInventory` y `inventoryUnits`, y se computa al query (§6.3).
 6. **Devolver `NormalizationStats`** para que el handler de upload actualice el `Upload` row.
@@ -613,7 +613,8 @@ export async function normalize(input: NormalizationInput, db: PrismaClient): Pr
   await db.$transaction(async (tx) => {
     for (const row of parserResult.rows) {
       const productId = mappingLookup(parserResult.metadata.chain, row.portalRawProduct);
-      const daysInv = row.daysOfInventory ?? computeDaysInventory(row.salesUnits, row.inventoryUnits);
+      // daysOfInventory solo se persiste si viene del parser (caso AL SUPER en Fase 2). Para el resto, NULL — se calcula al query.
+      const daysInv = row.daysOfInventory ?? null;
 
       const result = await upsertSelloutRow(tx, {
         clientId, userId, uploadId,
@@ -913,7 +914,7 @@ Punto de decisión: **al final del día 2.** Si Análisis no está funcionando e
 5. **Días de inventario por SKU** — dot plot. Eje Y: producto. Eje X: días. Líneas verticales en thresholds (7, 14, 21, 60). Color por estado.
 
 **OneTable:**
-- Tabla consolidada con columnas: Cadena, Tienda, Producto (con badge unmapped si aplica), Periodo, Ventas U, Ventas MXN, Inventario U, Días Inv, Alerta.
+- Tabla consolidada con columnas: Cadena, Tienda, Producto (con badge unmapped si aplica), Periodo, Ventas U, Ventas MXN, Inventario U, Días Inv (calculado al vuelo desde `inventoryUnits` y `salesUnits` con la fórmula del semáforo §9.2, salvo para portales que lo provean explícitamente como AL SUPER), Alerta.
 - Filtros: cadena (multi-select), periodo (range), producto (search), estado de alerta (multi-select), incluir unmapped (toggle).
 - Paginación: 50 rows/page. Total al footer.
 - Export: 2 botones — "Excel" y "CSV". Genera el dump filtrado actual con SheetJS client-side. Sin server round-trip.
@@ -959,6 +960,7 @@ WHERE "clientId" = $1 AND "userId" = $2;
 
 ## 10. Items fuera de scope (notas para Fase 2)
 
+- **Persistir `daysOfInventory` precomputado:** considerar agregar columna calculada (`GENERATED ALWAYS AS`) o materialized view si el query del dashboard pasa de 200ms con datasets reales en Fase 2.
 - **HEB, AL SUPER, LA COMER parsers + normalizer.** UI los deshabilita con tooltip "Llegan esta semana".
 - **La Comer "milésimas":** validar empíricamente vs cliente real cuando se implemente el parser.
 - **Catálogo VIKS duplicate fix:** AL SUPER duplicado expuesto en UI con conflict banner.
