@@ -1,6 +1,4 @@
-// vitest.config.ts
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'node:path';
 
 export default defineConfig({
   test: {
@@ -8,6 +6,6 @@ export default defineConfig({
     coverage: { provider: 'v8', include: ['core/**/*.ts'] },
   },
   resolve: {
-    alias: { '@': resolve(__dirname, '.') },
+    alias: { '@': new URL('.', import.meta.url).pathname },
   },
 });
