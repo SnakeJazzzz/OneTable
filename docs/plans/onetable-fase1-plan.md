@@ -413,25 +413,15 @@ export default function Home() {
 }
 ```
 
-- [ ] **Step 5: Crear `lib/utils.ts` (cn() helper, sin shadcn CLI)**
+- [ ] **Step 5: ~~lib/utils.ts~~ DIFERIDO a G2**
 
-Necesita `clsx` + `tailwind-merge`. ESTO REQUIERE 2 deps adicionales fuera de la lista pineada — **PARAR antes de agregarlas y reportar al usuario**.
+`cn()` helper requiere `clsx` + `tailwind-merge` que NO están en la lista pineada. G0 no necesita `cn()` (el smoke test usa `<button>` plano con Tailwind). Diferimos creación de `lib/utils.ts` a G2 (primer task que agrega componentes shadcn reales), donde aplicará mitigación #7: presentar versiones de `clsx` + `tailwind-merge` al usuario, esperar confirmación, agregar a pin list.
 
-Si el usuario aprueba (versiones a usar):
-- `clsx@2.1.1`
-- `tailwind-merge@2.5.5`
-
-Agregar a `package.json` `dependencies` y luego:
-
-```ts
-// lib/utils.ts
-import { type ClassValue, clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
+Crear placeholder vacío en `lib/` para que la carpeta exista:
+```bash
+mkdir -p lib
+touch lib/.gitkeep
 ```
-
-**Status decisión: BLOQUEANTE.** El subagente debe parar y consultar usuario antes de continuar Step 5.
 
 - [ ] **Step 6: Crear `components.json` (shadcn config a mano)**
 
