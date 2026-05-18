@@ -830,6 +830,116 @@ PREFLIGHT_DATABASE_URL="postgresql://..." pnpm preflight
 
 **Subtotal Gate:** 29.3h.
 
+### 7.2.1 Criterios de aprobación por Gate
+
+Cada gate se considera aprobado **solo** cuando todos los criterios listados se cumplen. Son criterios observables (no estéticos): se verifican en un browser real con DevTools abierto, no por sentimiento.
+
+#### G1 — Auth UI
+
+**Criterios de aprobación (todos deben cumplirse):**
+- [ ] Página /login renderiza email + password + botón "Iniciar sesión" + botón secundario "Probar demo" + link "Crear cuenta"
+- [ ] Página /signup renderiza email + password + confirm + botón "Crear cuenta" + link "Ya tengo cuenta"
+- [ ] Login con `demo@onetable.app` / `demo1234` redirige a /dashboard y crea JWT cookie httpOnly
+- [ ] Botón "Probar demo" hace auto-fill + submit, no requiere typing del evaluador
+- [ ] Sign-up con credenciales válidas crea User en DB y redirige a /dashboard con estado vacío
+- [ ] Sign-up con email duplicado muestra error inline (no toast genérico)
+- [ ] Página /dashboard sin sesión redirige a /login
+- [ ] Logout limpia cookie y redirige a /login
+
+#### G2 — Layout shell
+
+**Criterios:**
+- [ ] Sidebar con 5 items: Dashboard, Análisis, Clientes, Catálogo, Promotoría
+- [ ] Item activo visualmente distinguible (no solo color, debe haber al menos 2 cues: bg + border)
+- [ ] Topbar con logo OneTable + nombre del usuario + dropdown logout
+- [ ] Theme dark + accent color consistente en sidebar, topbar, hover states, focus rings
+- [ ] Layout responsive: sidebar colapsa a icon-only en width <1024px
+- [ ] En mobile (<768px), sidebar se vuelve drawer con hamburger
+
+#### G3 — Landing page
+
+**Criterios:**
+- [ ] Hero con headline + subheadline + CTA primario "Probar demo" + CTA secundario "Crear cuenta"
+- [ ] Sección "Cómo funciona" con 3 pasos visuales
+- [ ] Sección "Features" con al menos 4 features (consolidación, dashboard, alertas, export)
+- [ ] CTA final repetido al pie
+- [ ] Render correcto en mobile (<768px): sin overflow horizontal, texto legible sin zoom
+- [ ] Tiempo a interactivo <2s en Vercel deploy (verificable con Chrome DevTools Performance)
+
+#### G4 — Dashboard FULL
+
+**Criterios:**
+- [ ] 4 KPI cards renderizan con datos reales post-upload (no placeholder)
+- [ ] 5 charts renderizan con interactividad básica (hover muestra tooltip con valor exacto)
+- [ ] Chart "Tendencia 6 meses" maneja el caso "solo 1 mes" sin verse roto (renderiza el punto único con mensaje contextual)
+- [ ] OneTable con paginación 50/page, filtros por cadena/periodo/producto/alerta funcionan, footer muestra count total
+- [ ] Export Excel descarga archivo .xlsx con datos filtrados actuales, abrible en Excel sin warnings
+- [ ] Export CSV descarga .csv UTF-8 con BOM (compatible con Excel español)
+- [ ] Empty state pre-upload renderiza prompt "Subí tu primer archivo en Análisis" con CTA
+- [ ] Banner de unmapped products aparece cuando count > 0 con CTA a /catalogo
+- [ ] Badge "estimado" visible cuando alguna fila tiene `salesUnitsEstimated = true`
+
+#### G5 — Análisis page
+
+**Criterios:**
+- [ ] Selector con 4 opciones habilitadas: Soriana — Mixto, Chedraui — Mixto, Amazon — Ventas, Amazon — Inventario
+- [ ] Selector con 6 opciones deshabilitadas con tooltip: HEB / AL SUPER / LA COMER (×2 cada uno)
+- [ ] Drag-and-drop visible para upload (no solo botón "Examinar")
+- [ ] Click en zona también abre file picker (drag NO es la única vía)
+- [ ] Progress visible durante el procesamiento (no solo spinner — texto "Procesando fila X de Y" o barra)
+- [ ] Summary post-upload renderiza: total / nuevas / actualizadas / sin mapear, con números reales
+- [ ] Error en archivo malformado muestra mensaje user-friendly (NO stack trace), con detalle expandible si el usuario quiere
+- [ ] Validación cliente-side: rechazar archivos que no sean .xlsx con mensaje claro
+- [ ] Tamaño máximo 10MB enforced cliente-side antes de upload
+
+#### G6 — Clientes page
+
+**Criterios:**
+- [ ] Lista de clientes con nombre + email + count de uploads + último upload (fecha)
+- [ ] Botón "+ Agregar Cliente" abre modal full-width en mobile, modal centrado en desktop
+- [ ] Modal tiene 3 secciones: Datos / Catálogo (opcional) / Credenciales de portales
+- [ ] Sección Credenciales: checkbox por portal expande Collapsible con username + password
+- [ ] Label dinámico: "Email" para Amazon, "Usuario" para resto
+- [ ] Microcopy explícito bajo password: "Se cifrará y almacenará en Fase 2"
+- [ ] File input Excel acepta solo .xlsx, valida tamaño <5MB
+- [ ] Submit sin Excel crea cliente con catálogo vacío + portal credentials
+- [ ] Submit con Excel parsea + valida + reporta warnings antes de cerrar modal
+- [ ] Botón editar cliente abre el mismo modal pre-llenado (sin password visible)
+- [ ] Botón borrar cliente pide confirmación, cascade-borra data del cliente
+
+#### G7 — Catálogo page
+
+**Criterios:**
+- [ ] Tabla con columnas: Producto (`nameStandard`) + 1 columna por cadena con su mapeo string
+- [ ] Botón "Importar Excel" abre file picker, hace merge no-destructivo
+- [ ] Sección inferior "Productos sin mapear" lista `UnmappedProduct WHERE resolvedAt IS NULL`
+- [ ] Por cada unmapped: dropdown "Mapear a producto existente" + botón "Mapear y backfillear"
+- [ ] Botón "+ Agregar como nuevo producto" crea Product + ProductMapping + backfill SelloutData
+- [ ] Confirmación visual cuando un mapeo se resuelve (toast + row desaparece del unmapped queue)
+- [ ] Conflict banner cuando un `portalString` apunta a >1 producto (cubrirá AL SUPER en Fase 2; en F1 no debería verse pero el código existe)
+
+#### G8 — Promotoría stub
+
+**Criterios:**
+- [ ] Hero "Próximamente" con título + subtítulo
+- [ ] 3 cards de features futuras con icon + título + descripción corta
+- [ ] 1 mockup/screenshot de cómo se verá (puede ser placeholder generado, no requiere asset real)
+- [ ] Visualmente consistente con el resto del app (dark mode + accent)
+- [ ] No tiene CTAs que vayan a páginas no implementadas
+
+#### G9 — Vercel deploy + smoke producción
+
+**Criterios:**
+- [ ] Deploy exitoso en https://onetable.vercel.app (o subdominio definitivo)
+- [ ] Login con demo user funciona en Chrome desktop (latest)
+- [ ] Login con demo user funciona en Safari desktop (latest)
+- [ ] Login con demo user funciona en iPhone Safari (iOS 17+)
+- [ ] Flow demo §6.3 completo ejecutado sin errores en Chrome
+- [ ] No hay errores rojos en console del browser en producción durante el flow
+- [ ] Pre-flight script pasa 100% contra DB de prueba minutos antes del demo
+- [ ] Network tab: ninguna request 4xx/5xx durante el flow demo
+- [ ] Página /catalogo carga en <1s con catálogo de 16 productos en producción
+
 ---
 
 ## 8. Q7 — Orden + Time budget + Cut priorities
