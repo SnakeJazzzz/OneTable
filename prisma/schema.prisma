@@ -156,7 +156,7 @@ model SelloutData {
   // Periodo (siempre presente)
   periodYear  Int
   periodMonth Int
-  periodDate  DateTime? // solo para snapshots diarios (AL SUPER); usar @db.Date en migration
+  periodDate  DateTime? @db.Date // solo para snapshots diarios (AL SUPER)
 
   // Dimensiones
   chain            Chain
