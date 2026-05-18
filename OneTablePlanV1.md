@@ -10,7 +10,7 @@
 
 **OneTable** es una plataforma SaaS B2B para proveedores de retail en México.
 Consolida datos de ventas (sell-out) e inventario de los portales web de cada
-cadena (Soriana, Chedraui, HEB, Al Super, La Comer, Amazon) en una sola tabla
+cadena (Soriana, Chedraui, HEB, Al Super, La Comer, Amazon, ect..) en una sola tabla
 unificada y un dashboard accionable.
 
 **Naming:** el proyecto se llamaba "Scopium" en el SRS original
@@ -33,7 +33,7 @@ visibilidad real, unificada y actualizada de su sell-out en punto de venta.
 
 - Proveedores PyME de productos de consumo en México
 - 5-50 SKUs activos
-- Presencia en 3-10 cadenas
+- Presencia en 3-10+ cadenas
 - Facturación $5M-$100M MXN anuales
 - Sin departamento de datos ni TI dedicado
 
