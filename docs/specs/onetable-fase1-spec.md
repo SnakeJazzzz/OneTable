@@ -378,7 +378,7 @@ export async function upsertSelloutRow(tx: Prisma.TransactionClient, row: Sellou
       ${row.inventoryUnits}, ${row.inventoryAmountCostMxn}, ${row.inventoryAmountPriceMxn},
       ${row.daysOfInventory}, NOW(), NOW()
     )
-    ON CONFLICT ON CONSTRAINT sellout_unique_idx DO UPDATE SET
+    ON CONFLICT ("clientId", chain, "storeId", "portalRawProduct", "periodYear", "periodMonth") DO UPDATE SET
       "uploadId"               = EXCLUDED."uploadId",
       "productId"              = COALESCE(EXCLUDED."productId", "SelloutData"."productId"),
       "storeName"              = COALESCE(EXCLUDED."storeName", "SelloutData"."storeName"),
@@ -400,6 +400,8 @@ export async function upsertSelloutRow(tx: Prisma.TransactionClient, row: Sellou
 ```
 
 **Detectar inserted vs updated:** Postgres trick — `xmax = 0` cuando la fila fue INSERT-eada en esta operación. Usar para contar `rowsInserted` vs `rowsUpdated` en stats del upload.
+
+> **AJUSTE 5 (post-implementación S7):** PostgreSQL no permite `ON CONFLICT ON CONSTRAINT <name>` contra UNIQUE INDEX (solo contra CONSTRAINT backed por `pg_constraint`). Como `sellout_unique_idx` se crea via `CREATE UNIQUE INDEX ... NULLS NOT DISTINCT` (no `ADD CONSTRAINT UNIQUE`), el SQL usa la forma `ON CONFLICT (cols...)` que PG resuelve contra el matching unique index respetando `NULLS NOT DISTINCT` correctamente. Verificado empíricamente en S7 con Amazon UPSERT (`storeId=NULL`, segunda inserción → UPDATE como esperado).
 
 ### 2.4 Decisiones de schema importantes
 
