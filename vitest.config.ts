@@ -1,14 +1,12 @@
 import { defineConfig } from 'vitest/config';
-import { config as dotenvConfig } from 'dotenv';
 
-// Load .env.local for DATABASE_URL (used by DB integration tests)
-dotenvConfig({ path: '.env.local' });
-
+// .env.local is loaded by tests/setup.ts (pure Node fs, no third-party dotenv).
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     coverage: { provider: 'v8', include: ['core/**/*.ts'] },
     testTimeout: 60000,
+    setupFiles: ['./tests/setup.ts'],
   },
   resolve: {
     alias: { '@': new URL('.', import.meta.url).pathname },
