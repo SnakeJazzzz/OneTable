@@ -743,11 +743,16 @@ Pasos:
 {
   "scripts": {
     "db:seed": "tsx scripts/seed.ts",
-    "db:reset": "prisma migrate reset --force && pnpm db:seed",
+    "db:reset": "prisma migrate reset --force",
     "preflight": "tsx scripts/preflight.ts"
+  },
+  "prisma": {
+    "seed": "tsx scripts/seed.ts"
   }
 }
 ```
+
+El bloque `prisma.seed` en `package.json` hace que `prisma migrate reset --force` ejecute el seed automáticamente. Llamar a `pnpm db:seed` standalone sigue funcionando para reseeds sin reset de schema.
 
 **Tiempo esperado:** <5 segundos. Si tarda más, hay algo mal con la conexión Neon.
 
