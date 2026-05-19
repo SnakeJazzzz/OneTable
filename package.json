@@ -12,7 +12,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "preflight": "tsx scripts/preflight.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "prisma generate && tsc --noEmit"
   },
   "prisma": {
     "seed": "tsx scripts/seed.ts"
