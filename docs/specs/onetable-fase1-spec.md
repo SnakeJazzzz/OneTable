@@ -42,7 +42,7 @@
 - **Credenciales de portal:** tabla `PortalCredential` con `username` storeado, `password` discarded silenciosamente, `hasPasswordPending bool`. Microcopy: "Password se cifrará y almacenará en Fase 2 con KMS, por ahora solo registramos el username". Label dinámico (`Email` para Amazon, `Usuario` para el resto). UI con checkbox + Collapsible por portal.
 - **Dashboard scope:** FULL SRS (4 KPI cards + 5 charts + OneTable con filtros + badges + export). ~10-12h.
 - **Alert thresholds:** defaults propuestos (ver §6.3). Configurables en Fase 2.
-- **Auth:** Login + sign-up funcional + botón "Probar demo" destacado. NextAuth v5 + Credentials + JWT.
+- **Auth:** Login + sign-up funcional + redirect inteligente desde `/`. NextAuth v5 + Credentials + JWT.
 - **Seed:** **estático puro** (user + client + products + mappings + portal_credentials). NO corre parsers, NO popula `SelloutData`. El demo ES el upload en vivo. Pre-flight obligatorio contra DB de prueba antes de cada presentación.
 - **Time budget:** ~38h con subagentes paralelizando Sprint, ~45h conservador. Sobre 35h target. Cut priorities en §8.
 
@@ -728,7 +728,7 @@ Pasos:
 2. Confirmar entorno: si `process.env.NODE_ENV === 'production'` y no hay flag `--force`, abortar.
 3. `TRUNCATE ... CASCADE` sobre todas las tablas: `SelloutData, UnmappedProduct, Upload, ProductMapping, Product, PortalCredential, Client, User`.
 4. INSERT demo `User`:
-   - `email: "demo@onetable.app"`
+   - `email: "demo@onetable.mx"`
    - `passwordHash: bcrypt("demo1234", 10)`
    - `name: "Demo VIKS"`
 5. INSERT demo `Client`:
@@ -784,7 +784,7 @@ PREFLIGHT_DATABASE_URL="postgresql://..." pnpm preflight
 
 ### 6.3 Demo flow en vivo (referencia)
 
-1. Login con `demo@onetable.app` / `demo1234` (botón "Probar demo" auto-llena).
+1. Login con `demo@onetable.mx` / `demo1234`.
 2. Dashboard arranca con empty state: "Subí tu primer archivo en Análisis para ver datos."
 3. Ir a Análisis → seleccionar `Soriana — Mixto` → subir `soriana-sample.xlsx` → ver resumen.
 4. Repetir para `Chedraui — Mixto`, `Amazon — Ventas`, `Amazon — Inventario`.
@@ -820,7 +820,7 @@ PREFLIGHT_DATABASE_URL="postgresql://..." pnpm preflight
 
 | # | Tarea | Razón gate | Estim |
 |---|---|---|-----|
-| G1 | Auth UI: login + sign-up + "Probar demo" + redirects + empty state | Flow visual + JWT cookies en browser | 3h |
+| G1 | Auth UI: login + sign-up + root redirect + protected-route redirects + empty state | Flow visual + JWT cookies en browser | 3h |
 | G2 | Layout shell: sidebar, topbar, theme dark + accent | Look & feel | 2h |
 | G3 | Landing page: hero, how-it-works, features, CTA | Copywriting + visual | 3h |
 | G4 | Dashboard FULL: 4 KPI cards + 5 charts + OneTable + filtros + export + alert badges + banner de unmapped | Polish target (D2) | 9h |
@@ -839,14 +839,21 @@ Cada gate se considera aprobado **solo** cuando todos los criterios listados se 
 #### G1 — Auth UI
 
 **Criterios de aprobación (todos deben cumplirse):**
-- [ ] Página /login renderiza email + password + botón "Iniciar sesión" + botón secundario "Probar demo" + link "Crear cuenta"
-- [ ] Página /signup renderiza email + password + confirm + botón "Crear cuenta" + link "Ya tengo cuenta"
-- [ ] Login con `demo@onetable.app` / `demo1234` redirige a /dashboard y crea JWT cookie httpOnly
-- [ ] Botón "Probar demo" hace auto-fill + submit, no requiere typing del evaluador
-- [ ] Sign-up con credenciales válidas crea User en DB y redirige a /dashboard con estado vacío
+- [ ] Página /login renderiza email + password + botón "Iniciar sesión" + link "Crear cuenta"
+- [ ] Página /signup renderiza email + password + nombre de empresa + botón "Crear cuenta" + link "Ya tengo cuenta"
+- [ ] Login con `demo@onetable.mx` / `demo1234` redirige a /dashboard y crea JWT cookie httpOnly
+- [ ] Sign-up con credenciales válidas crea User + Client atómicamente y redirige a /dashboard con estado vacío
 - [ ] Sign-up con email duplicado muestra error inline (no toast genérico)
 - [ ] Página /dashboard sin sesión redirige a /login
+- [ ] Raíz `/` con sesión redirige a /dashboard; sin sesión redirige a /login
 - [ ] Logout limpia cookie y redirige a /login
+
+> **AJUSTE pre-G1 (cierre Bloque A):**
+> - Botón "Probar demo" en /login → **removido**: credenciales tipeables, sin valor de UX adicional para el demo ANTAD.
+> - Campo "Confirmar password" en /signup → **removido**: low-friction signup prioritario; validación HTML5 `minLength=6` + error inline post-submit cubre el caso.
+> - Demo user email migrado de `demo@onetable.app` a `demo@onetable.mx` (contexto retail mexicano).
+>
+> Implementación: `app/(auth)/login/page.tsx`, `app/(auth)/signup/page.tsx`, `app/page.tsx` (root redirect), `scripts/seed.ts:69` (DEMO_USER_EMAIL).
 
 #### G2 — Layout shell
 
@@ -1113,7 +1120,7 @@ Checklist obligatoria antes del lunes de ANTAD:
 - [ ] `pnpm db:seed` corre sin error contra Neon producción, en <5s.
 - [ ] `pnpm preflight` pasa 100% contra DB de prueba.
 - [ ] Deploy vivo en `https://onetable.vercel.app` (o subdominio real).
-- [ ] Login con `demo@onetable.app` / `demo1234` entra correctamente.
+- [ ] Login con `demo@onetable.mx` / `demo1234` entra correctamente.
 - [ ] Demo flow §6.3 ejecutado end-to-end sin errores rojos en Chrome, Safari y iPhone Safari.
 - [ ] Empty state del dashboard se ve bien (no se ve "roto").
 - [ ] Dashboard FULL (o Trimmed si cortamos) se ve polished — esto es D2.

@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "prisma migrate reset --force",
-    "preflight": "tsx scripts/preflight.ts"
+    "preflight": "tsx scripts/preflight.ts",
+    "typecheck": "tsc --noEmit"
   },
   "prisma": {
     "seed": "tsx scripts/seed.ts"
@@ -20,6 +21,7 @@
     "@auth/prisma-adapter": "2.7.4",
     "@prisma/client": "6.19.3",
     "bcryptjs": "2.4.3",
+    "clsx": "2.1.1",
     "next": "14.2.18",
     "next-auth": "5.0.0-beta.25",
     "papaparse": "5.4.1",
@@ -27,6 +29,7 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "recharts": "2.13.0",
+    "tailwind-merge": "2.5.5",
     "xlsx": "0.18.5"
   },
   "devDependencies": {

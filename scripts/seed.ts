@@ -66,7 +66,7 @@ const ALL_CHAINS: Chain[] = [
   'AMAZON',
 ];
 
-export const DEMO_USER_EMAIL = 'demo@onetable.app';
+export const DEMO_USER_EMAIL = 'demo@onetable.mx';
 export const DEMO_USER_PASSWORD = 'demo1234';
 export const DEMO_USER_NAME = 'Demo VIKS';
 export const DEMO_CLIENT_NAME = 'VIKS Jerky Co.';
