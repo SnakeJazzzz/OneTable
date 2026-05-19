@@ -1,0 +1,53 @@
+{
+  "name": "onetable",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:reset": "prisma migrate reset --force",
+    "preflight": "tsx scripts/preflight.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "prisma": {
+    "seed": "tsx scripts/seed.ts"
+  },
+  "dependencies": {
+    "@auth/prisma-adapter": "2.7.4",
+    "@prisma/client": "6.19.3",
+    "bcryptjs": "2.4.3",
+    "clsx": "2.1.1",
+    "lucide-react": "0.471.0",
+    "next": "14.2.18",
+    "next-auth": "5.0.0-beta.25",
+    "papaparse": "5.4.1",
+    "prisma": "6.19.3",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.13.0",
+    "tailwind-merge": "2.5.5",
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "2.4.6",
+    "@types/node": "20.17.10",
+    "@types/papaparse": "5.3.15",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@vitest/coverage-v8": "2.1.8",
+    "autoprefixer": "10.4.20",
+    "eslint": "8.57.1",
+    "eslint-config-next": "14.2.18",
+    "postcss": "8.5.1",
+    "tailwindcss": "3.4.17",
+    "tsx": "4.19.2",
+    "typescript": "5.3.3",
+    "vitest": "2.1.8"
+  },
+  "packageManager": "pnpm@10.26.1+sha512.664074abc367d2c9324fdc18037097ce0a8f126034160f709928e9e9f95d98714347044e5c3164d65bd5da6c59c6be362b107546292a8eecb7999196e5ce58fa"
+}

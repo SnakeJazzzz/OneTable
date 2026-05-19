@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================================================
+// Identity
+// =====================================================================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+
+  clients Client[]
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  email     String?
+  createdAt DateTime @default(now())
+
+  products          Product[]
+  productMappings   ProductMapping[]
+  portalCredentials PortalCredential[]
+  uploads           Upload[]
+  selloutData       SelloutData[]
+  unmappedProducts  UnmappedProduct[]
+
+  @@index([userId])
+}
+
+// =====================================================================
+// Catálogo
+// =====================================================================
+
+enum Chain {
+  SORIANA
+  CHEDRAUI
+  HEB
+  AL_SUPER
+  LA_COMER
+  AMAZON
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  clientId     String
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  nameStandard String // viene de columna "Producto VIKS" del Excel
+  createdAt    DateTime @default(now())
+
+  mappings    ProductMapping[]
+  selloutData SelloutData[]
+
+  @@unique([clientId, nameStandard])
+  @@index([clientId])
+}
+
+model ProductMapping {
+  id           String   @id @default(cuid())
+  clientId     String
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  chain        Chain
+  // String literal del portal (ASIN para Amazon, EAN para La Comer, nombre exacto para el resto)
+  portalString String
+  createdAt    DateTime @default(now())
+
+  @@unique([clientId, chain, portalString])
+  @@index([clientId, chain])
+  @@index([productId])
+}
+
+// =====================================================================
+// Credenciales de portal (Fase 1 = solo username)
+// =====================================================================
+
+model PortalCredential {
+  id                 String   @id @default(cuid())
+  clientId           String
+  client             Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  chain              Chain
+  username           String
+  isActive           Boolean  @default(true)
+  // true = el usuario indicó que el portal tiene password pero NO la storeamos en F1
+  hasPasswordPending Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([clientId, chain])
+}
+
+// =====================================================================
+// Uploads + data
+// =====================================================================
+
+enum FileType {
+  MIXED // Soriana, Chedraui (ventas + inv en un archivo)
+  VENTAS
+  INVENTARIO
+}
+
+enum UploadStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Upload {
+  id               String       @id @default(cuid())
+  clientId         String
+  client           Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId           String // denormalizado para queries fast por tenant
+  chain            Chain
+  fileType         FileType
+  originalFilename String
+  fileHash         String // sha256 hex del archivo crudo
+  fileSizeBytes    Int
+  status           UploadStatus @default(PENDING)
+  rowsTotal        Int          @default(0)
+  rowsInserted     Int          @default(0)
+  rowsUpdated      Int          @default(0)
+  rowsUnmapped     Int          @default(0)
+  errorMessage     String?
+  uploadedAt       DateTime     @default(now())
+  processedAt      DateTime?
+
+  selloutData      SelloutData[]
+  unmappedProducts UnmappedProduct[]
+
+  @@index([clientId, chain, fileType])
+  @@index([userId])
+  @@index([uploadedAt])
+}
+
+model SelloutData {
+  id       String  @id @default(cuid())
+  clientId String
+  client   Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId   String // denormalizado
+  uploadId String?
+  upload   Upload? @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+
+  // Periodo (siempre presente)
+  periodYear  Int
+  periodMonth Int
+  periodDate  DateTime? @db.Date // solo para snapshots diarios (AL SUPER)
+
+  // Dimensiones
+  chain            Chain
+  productId        String? // NULL cuando unmapped
+  product          Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  portalRawProduct String // string crudo del portal — parte de la identidad
+
+  // Store
+  storeId     String? // NULL para AMAZON (con NULLS NOT DISTINCT en unique)
+  storeName   String?
+  storeFormat String? // formato de LA COMER (1=La Comer, 2=City Market, 3=Fresko)
+
+  // Métricas (nullable per portal capability matrix del README)
+  salesUnits              Int?
+  salesUnitsEstimated     Boolean  @default(false) // true para AL SUPER
+  salesAmountMxn          Decimal? @db.Decimal(12, 2)
+  purchasesUnits          Int?
+  purchasesAmountMxn      Decimal? @db.Decimal(12, 2)
+  inventoryUnits          Int?
+  inventoryAmountCostMxn  Decimal? @db.Decimal(12, 2)
+  inventoryAmountPriceMxn Decimal? @db.Decimal(12, 2)
+  daysOfInventory         Int? // SOLO se persiste cuando el portal lo provee explícitamente (AL SUPER en Fase 2). Para todo lo demás permanece NULL y se calcula al query con CASE WHEN salesUnits > 0 THEN (inventoryUnits::float / salesUnits) * 30 ELSE NULL END
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Unique sobre identidad natural — ver §2.2 sobre NULLS NOT DISTINCT
+  @@unique([clientId, chain, storeId, portalRawProduct, periodYear, periodMonth], map: "sellout_unique_idx")
+  @@index([clientId, chain])
+  @@index([clientId, productId])
+  @@index([clientId, periodYear, periodMonth])
+  @@index([userId])
+  @@index([uploadId])
+}
+
+model UnmappedProduct {
+  id                String    @id @default(cuid())
+  clientId          String
+  client            Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  chain             Chain
+  portalString      String
+  firstSeenUploadId String
+  firstSeenUpload   Upload    @relation(fields: [firstSeenUploadId], references: [id], onDelete: Cascade)
+  occurrenceCount   Int       @default(1)
+  resolvedAt        DateTime?
+  resolvedProductId String? // FK lógico — sin relación formal para evitar cycles, validar a mano
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([clientId, chain, portalString])
+  @@index([clientId, chain, resolvedAt])
+}
