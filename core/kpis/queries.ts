@@ -237,11 +237,27 @@ export async function getSalesByChainForPeriod(
 }
 
 // 3. Semáforo inventario por SKU (heatmap producto × cadena con alerta)
-//    H1 (worst-case): fetch per-store rows, classify each individually via
-//    classifyAlert (SSOT), then reduce to the worst-case alert per (sku, chain).
-//    Prior behavior (SUM-then-classify) diluted stockouts: a chain with 13
-//    stockout rows + 1 healthy row could appear OK on the semáforo. Spec §9.1
-//    requires "Color: estado de alerta agregado (worst-case por SKU)".
+//    G5b: majority aggregation with worst-case tiebreaker. Fetch per-store
+//    rows, classify each individually via classifyAlert (SSOT), then count
+//    each alert type per (sku, chain) and return the most common one.
+//
+//    History:
+//      - Original: SUM-then-classify diluted stockouts (e.g. 13 SIN_STOCK + 1
+//        OK summed to OK). Fixed by H1.
+//      - H1: per-row classify + worst-case fold. With real Chedraui data
+//        (5.8% store-level stockouts spread across all SKUs), every SKU
+//        bubbled to SIN_STOCK — the heatmap rendered uniformly red even
+//        though >90% of stores were stocked. The user reported this as a
+//        bug; investigation confirmed it was H1 working as designed.
+//      - G5b: switch to MAJORITY alert per (sku, chain). Tiebreaker on equal
+//        counts = worse alert wins (severity-ordered iteration). Preserves
+//        H1's intent (a SKU mostly stocked-out shows red) while no longer
+//        over-promoting based on a handful of negative-inventory rows.
+//
+//    Spec §9.1 originally said "worst-case por SKU" — this G5b deviation is
+//    documented + intentional. The daysInv dot plot still uses worst-case
+//    (lowest daysOfInv per SKU × chain) since its purpose is precisely
+//    "what's the most-at-risk store for this SKU?" — different question.
 export async function getInventorySemaforo(
   db: PrismaClient,
   params: PeriodParams,
@@ -273,25 +289,23 @@ export async function getInventorySemaforo(
     ORDER BY product_name ASC, sd.chain ASC
   `;
 
-  // Severity ranking (lowest = worst). Used to fold many stores → one alert.
-  const severity: Record<AlertStatus, number> = {
-    SIN_STOCK: 1,
-    CRITICO: 2,
-    RIESGO: 3,
-    ATENCION: 4,
-    EXCESO: 5,
-    OK: 6,
-    SIN_DATOS: 7,
-  };
+  // Tiebreaker order: worst alert first. When two alert types tie on count,
+  // we pick the one that appears first in this list (i.e. the worse one).
+  const TIEBREAK_ORDER: AlertStatus[] = [
+    'SIN_STOCK',
+    'CRITICO',
+    'RIESGO',
+    'ATENCION',
+    'EXCESO',
+    'OK',
+    'SIN_DATOS',
+  ];
 
-  // Group key = `${productId ?? portalRawProduct}|${chain}`. We use
-  // product_name as the proxy for portalRawProduct in the unmapped case
-  // because SELECT COALESCEs them — same shape as the prior SUM grouping.
   type Bucket = {
     productId: string | null;
     productName: string;
     chain: Chain;
-    alert: AlertStatus;
+    counts: Record<AlertStatus, number>;
   };
   const buckets = new Map<string, Bucket>();
 
@@ -303,21 +317,47 @@ export async function getInventorySemaforo(
     const rowAlert = classifyAlert(inv, daysOfInv);
 
     const key = `${r.product_id ?? r.product_name}|${r.chain}`;
-    const existing = buckets.get(key);
-    if (!existing) {
-      buckets.set(key, {
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
         productId: r.product_id,
         productName: r.product_name,
         chain: r.chain,
-        alert: rowAlert,
-      });
-    } else if (severity[rowAlert] < severity[existing.alert]) {
-      existing.alert = rowAlert;
+        counts: {
+          SIN_STOCK: 0,
+          CRITICO: 0,
+          RIESGO: 0,
+          ATENCION: 0,
+          OK: 0,
+          EXCESO: 0,
+          SIN_DATOS: 0,
+        },
+      };
+      buckets.set(key, bucket);
     }
+    bucket.counts[rowAlert]++;
   }
 
-  // Preserve the legacy output ordering: productName ASC, chain ASC.
-  return Array.from(buckets.values()).sort((a, b) => {
+  // Reduce each bucket to the modal alert (worst alert wins ties).
+  const result: SkuInventoryStatus[] = Array.from(buckets.values()).map((b) => {
+    let bestCount = -1;
+    let bestAlert: AlertStatus = 'SIN_DATOS';
+    for (const status of TIEBREAK_ORDER) {
+      if (b.counts[status] > bestCount) {
+        bestCount = b.counts[status];
+        bestAlert = status;
+      }
+    }
+    return {
+      productId: b.productId,
+      productName: b.productName,
+      chain: b.chain,
+      alert: bestAlert,
+    };
+  });
+
+  // Preserve output ordering: productName ASC, chain ASC.
+  return result.sort((a, b) => {
     if (a.productName !== b.productName) return a.productName < b.productName ? -1 : 1;
     return a.chain < b.chain ? -1 : a.chain > b.chain ? 1 : 0;
   });
@@ -363,6 +403,103 @@ export async function getTopSkusByChain(
     productName: r.product_name,
     salesUnits: Number(r.sales_units ?? 0),
   }));
+}
+
+// 6. OneTable — full per-store rows for a period (G5b)
+//    Returns one row per (chain, storeId, product, period) bucket with the
+//    alert classified per-row. Used by the consolidated table at the bottom
+//    of /dashboard. 3,188 real rows fit comfortably in a single payload;
+//    pagination + filters are client-side.
+export type OneTableRow = {
+  id: string;
+  chain: Chain;
+  storeId: string | null;
+  storeName: string | null;
+  productId: string | null;
+  productName: string;
+  portalRawProduct: string;
+  periodYear: number;
+  periodMonth: number;
+  salesUnits: number | null;
+  salesUnitsEstimated: boolean;
+  salesAmountMxn: number | null;
+  inventoryUnits: number | null;
+  daysOfInventory: number | null;
+  alert: AlertStatus;
+  isUnmapped: boolean;
+};
+
+export async function getOneTableRows(
+  db: PrismaClient,
+  params: PeriodParams,
+): Promise<OneTableRow[]> {
+  const { clientId, userId, periodYear, periodMonth } = params;
+
+  const raw = await db.$queryRaw<
+    Array<{
+      id: string;
+      chain: Chain;
+      store_id: string | null;
+      store_name: string | null;
+      product_id: string | null;
+      product_name: string;
+      portal_raw_product: string;
+      period_year: number;
+      period_month: number;
+      sales_units: bigint | null;
+      sales_units_estimated: boolean;
+      sales_amount_mxn: number | null;
+      inventory_units: number | null;
+    }>
+  >`
+    SELECT
+      sd.id                                              AS id,
+      sd.chain                                           AS chain,
+      sd."storeId"                                       AS store_id,
+      sd."storeName"                                     AS store_name,
+      sd."productId"                                     AS product_id,
+      COALESCE(p."nameStandard", sd."portalRawProduct")  AS product_name,
+      sd."portalRawProduct"                              AS portal_raw_product,
+      sd."periodYear"                                    AS period_year,
+      sd."periodMonth"                                   AS period_month,
+      sd."salesUnits"::bigint                            AS sales_units,
+      sd."salesUnitsEstimated"                           AS sales_units_estimated,
+      sd."salesAmountMxn"::float8                        AS sales_amount_mxn,
+      sd."inventoryUnits"                                AS inventory_units
+    FROM "SelloutData" sd
+    LEFT JOIN "Product" p ON p.id = sd."productId"
+    WHERE sd."clientId"   = ${clientId}
+      AND sd."userId"     = ${userId}
+      AND sd."periodYear" = ${periodYear}
+      AND sd."periodMonth"= ${periodMonth}
+    ORDER BY sd.chain ASC, sd."storeName" ASC NULLS LAST, product_name ASC
+  `;
+
+  return raw.map((r) => {
+    const inv = r.inventory_units == null ? null : Number(r.inventory_units);
+    const sales = r.sales_units == null ? null : Number(r.sales_units);
+    const days =
+      sales !== null && sales > 0 && inv !== null ? (inv / sales) * 30 : null;
+    const alert = classifyAlert(inv, days);
+    return {
+      id: r.id,
+      chain: r.chain,
+      storeId: r.store_id ?? null,
+      storeName: r.store_name ?? null,
+      productId: r.product_id ?? null,
+      productName: r.product_name,
+      portalRawProduct: r.portal_raw_product,
+      periodYear: Number(r.period_year),
+      periodMonth: Number(r.period_month),
+      salesUnits: sales,
+      salesUnitsEstimated: r.sales_units_estimated,
+      salesAmountMxn: r.sales_amount_mxn === null ? null : Number(r.sales_amount_mxn),
+      inventoryUnits: inv,
+      daysOfInventory: days === null ? null : Math.round(days * 10) / 10,
+      alert,
+      isUnmapped: r.product_id === null,
+    };
+  });
 }
 
 // 5. Días de inventario por SKU (dot plot)

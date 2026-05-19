@@ -272,7 +272,7 @@ describe('KPI queries (S8) — integration against Neon', () => {
   });
 
   describe('getInventorySemaforo', () => {
-    it('classifies each store-row individually and returns worst-case alert per (product, chain)', async () => {
+    it('classifies per-store rows and returns the modal alert per (product, chain) — worst-case tiebreaker', async () => {
       const rows = await getInventorySemaforo(db, {
         clientId,
         userId,
@@ -280,17 +280,15 @@ describe('KPI queries (S8) — integration against Neon', () => {
         periodMonth: 3,
       });
 
-      // H1: worst-case folds per-store rows. Buckets:
+      // G5b: majority/mode aggregation (worst-case tiebreaker). Buckets:
       //   SORIANA: A, B, C, D, E, unmapped, F, G + AMAZON: A, B = 10
       expect(rows.length).toBe(10);
 
       const find = (productName: string, chain: Chain) =>
         rows.find((r) => r.productName === productName && r.chain === chain);
 
-      // SEMANTIC NOTE (H1): A was CRITICO via SUM(30)/SUM(150)*30=6 pre-fix.
-      // Post-fix: store 001 daysInv=6 (CRITICO), store 002 daysInv=6 (CRITICO) → worst=CRITICO.
-      // Same value, different path.
-      expect(find('PRODUCT A', 'SORIANA')?.alert).toBe('CRITICO');
+      // Single-alert majorities (every store sees the same alert):
+      expect(find('PRODUCT A', 'SORIANA')?.alert).toBe('CRITICO'); // 2× CRITICO
       expect(find('PRODUCT B', 'SORIANA')?.alert).toBe('OK'); // single store, 100/50*30=60
       expect(find('PRODUCT C', 'SORIANA')?.alert).toBe('EXCESO'); // single store, 300
       expect(find('PRODUCT D', 'SORIANA')?.alert).toBe('SIN_DATOS'); // sales=0
@@ -299,12 +297,12 @@ describe('KPI queries (S8) — integration against Neon', () => {
       expect(find('PRODUCT A', 'AMAZON')?.alert).toBe('RIESGO'); // 50/200*30=7.5
       expect(find('PRODUCT B', 'AMAZON')?.alert).toBe('OK'); // 80/100*30=24
 
-      // H1 NEW: worst-case must surface the SIN_STOCK store, not dilute via SUM.
-      //   Pre-fix would have computed SUM(10+0)=10 inv / SUM(2+5)=7 sales * 30 ≈ 42.9 → OK (BUG).
+      // G5b semantic: tie between 1 EXCESO + 1 SIN_STOCK → tiebreaker
+      // (worst-case) picks SIN_STOCK. Same answer H1 produced, different path.
       expect(find('PRODUCT F', 'SORIANA')?.alert).toBe('SIN_STOCK');
 
-      // H1 NEW: negative inventory in one store flags the SKU.
-      //   Pre-fix would have computed SUM(-3+50)=47 inv / SUM(10+2)=12 sales * 30 ≈ 117.5 → EXCESO (BUG).
+      // G5b semantic: tie between 1 SIN_STOCK (inv=-3) + 1 EXCESO → SIN_STOCK
+      // wins via worst-case tiebreaker.
       expect(find('PRODUCT G', 'SORIANA')?.alert).toBe('SIN_STOCK');
     });
 

@@ -485,8 +485,8 @@ export function DaysInvDotPlot({ data }: { data: DaysInvPoint[] }) {
       title="Días de inventario por SKU"
       hint="Worst-case por SKU × cadena. Líneas verticales en thresholds del semáforo (7, 14, 21, 60)."
     >
-      <ResponsiveContainer width="100%" height={Math.max(240, productLabels.length * 22)}>
-        <ScatterChart margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+      <ResponsiveContainer width="100%" height={Math.max(260, productLabels.length * 22 + 24)}>
+        <ScatterChart margin={{ top: 24, right: 16, bottom: 8, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} />
           <XAxis
             type="number"

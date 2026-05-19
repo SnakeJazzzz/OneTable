@@ -15,6 +15,7 @@ import {
   TopSkusSmallMultiples,
   TrendChart,
 } from '@/components/dashboard/dashboard-charts';
+import { OneTable } from '@/components/dashboard/onetable';
 import { cn } from '@/lib/utils';
 
 const MXN_FORMAT = new Intl.NumberFormat('es-MX', {
@@ -133,6 +134,8 @@ export default function DashboardPage() {
       <TopSkusSmallMultiples data={data.topSkus} />
 
       <DaysInvDotPlot data={data.daysInv} />
+
+      <OneTable periodKey={period} />
     </div>
   );
 }
