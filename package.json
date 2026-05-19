@@ -22,6 +22,7 @@
     "@prisma/client": "6.19.3",
     "bcryptjs": "2.4.3",
     "clsx": "2.1.1",
+    "lucide-react": "0.471.0",
     "next": "14.2.18",
     "next-auth": "5.0.0-beta.25",
     "papaparse": "5.4.1",
