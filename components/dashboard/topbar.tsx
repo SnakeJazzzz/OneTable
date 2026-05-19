@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { signOut } from 'next-auth/react';
-import { LogOut, Menu } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { LogOut, Menu, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useResetData } from '@/lib/hooks/use-reset-data';
 
 const MENU_TRIGGER_ID = 'topbar-user-menu-trigger';
 
@@ -13,9 +16,12 @@ export interface TopbarProps {
 }
 
 export function Topbar({ userEmail, clientName, onMobileToggle }: TopbarProps) {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const firstLetter = userEmail.charAt(0).toUpperCase();
+  const { reset, loading: resetLoading, error: resetError, clearError } = useResetData();
 
   // Close the dropdown when clicking outside or pressing Escape.
   useEffect(() => {
@@ -35,6 +41,21 @@ export function Topbar({ userEmail, clientName, onMobileToggle }: TopbarProps) {
       document.removeEventListener('keydown', onKey);
     };
   }, [isOpen]);
+
+  function openResetDialog() {
+    setIsOpen(false);
+    clearError();
+    setResetOpen(true);
+  }
+
+  async function handleResetConfirm() {
+    const ok = await reset();
+    if (ok) {
+      setResetOpen(false);
+      router.refresh();
+    }
+    // If !ok, dialog stays open with errorMessage rendered.
+  }
 
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-background px-4">
@@ -83,8 +104,17 @@ export function Topbar({ userEmail, clientName, onMobileToggle }: TopbarProps) {
             <button
               type="button"
               role="menuitem"
+              onClick={openResetDialog}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-destructive-foreground hover:bg-destructive/10 transition-colors"
+            >
+              <Trash2 className="h-4 w-4 shrink-0" />
+              <span>Borrar data</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
               onClick={() => signOut({ callbackUrl: '/login' })}
-              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
               <LogOut className="h-4 w-4 shrink-0" />
               <span>Cerrar sesión</span>
@@ -92,6 +122,17 @@ export function Topbar({ userEmail, clientName, onMobileToggle }: TopbarProps) {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={resetOpen}
+        title="Borrar todos los datos"
+        description="Esta acción es permanente y no se puede deshacer. Se borrarán todos los archivos cargados y las alertas generadas. Tu cuenta y catálogo se mantienen."
+        confirmLabel="Sí, borrar todo"
+        loading={resetLoading}
+        errorMessage={resetError}
+        onConfirm={handleResetConfirm}
+        onCancel={() => setResetOpen(false)}
+      />
     </header>
   );
 }

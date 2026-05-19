@@ -1,12 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { CheckCircle2, XCircle } from 'lucide-react';
+import { CheckCircle2, Trash2, XCircle } from 'lucide-react';
 import type { UploadStatus } from '@prisma/client';
 import { useUploads } from '@/lib/hooks/use-uploads';
+import { useResetData } from '@/lib/hooks/use-reset-data';
 import { UploadZone } from '@/components/analisis/upload-zone';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 
 const DT_FORMAT = new Intl.DateTimeFormat('es-MX', {
@@ -29,6 +33,8 @@ const STATUS_ES: Record<UploadStatus, string> = {
 export default function AnalisisPage() {
   const router = useRouter();
   const { uploads, loading, refetch } = useUploads();
+  const [resetOpen, setResetOpen] = useState(false);
+  const { reset, loading: resetLoading, error: resetError, clearError } = useResetData();
 
   async function handleUploadComplete() {
     // Read the closure value BEFORE refetch so we capture "was this the first
@@ -42,15 +48,43 @@ export default function AnalisisPage() {
     }
   }
 
+  function openResetDialog() {
+    clearError();
+    setResetOpen(true);
+  }
+
+  async function handleResetConfirm() {
+    const ok = await reset();
+    if (ok) {
+      setResetOpen(false);
+      await refetch();
+      router.refresh();
+    }
+    // If !ok, dialog stays open with errorMessage rendered.
+  }
+
   return (
     <div className="p-8 space-y-6 max-w-5xl">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-bold text-foreground">Análisis</h1>
-        <p className="text-muted-foreground">
-          {uploads.length === 0
-            ? 'Subí tu primer archivo para empezar a ver tu dashboard consolidado.'
-            : 'Subí los archivos de tus portales para consolidar ventas e inventario.'}
-        </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold text-foreground">Análisis</h1>
+          <p className="text-muted-foreground">
+            {uploads.length === 0
+              ? 'Subí tu primer archivo para empezar a ver tu dashboard consolidado.'
+              : 'Subí los archivos de tus portales para consolidar ventas e inventario.'}
+          </p>
+        </div>
+        {uploads.length > 0 && (
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={openResetDialog}
+            className="gap-2"
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+            Borrar data
+          </Button>
+        )}
       </header>
 
       <UploadZone onUploadComplete={handleUploadComplete} />
@@ -127,6 +161,17 @@ export default function AnalisisPage() {
           </p>
         )}
       </section>
+
+      <ConfirmDialog
+        open={resetOpen}
+        title="Borrar todos los datos"
+        description="Esta acción es permanente y no se puede deshacer. Se borrarán todos los archivos cargados y las alertas generadas. Tu cuenta y catálogo se mantienen."
+        confirmLabel="Sí, borrar todo"
+        loading={resetLoading}
+        errorMessage={resetError}
+        onConfirm={handleResetConfirm}
+        onCancel={() => setResetOpen(false)}
+      />
     </div>
   );
 }
