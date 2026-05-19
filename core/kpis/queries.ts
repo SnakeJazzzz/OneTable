@@ -18,6 +18,7 @@ export type ChainSalesPoint = {
   periodMonth: number;
   salesAmountMxn: number;
   salesUnits: number;
+  inventoryUnits: number | null;
 };
 
 export type SkuInventoryStatus = {
@@ -166,6 +167,7 @@ export async function getSalesTrend(
       periodMonth: number;
       sales_amount: number | null;
       sales_units: bigint | null;
+      inventory_units: bigint | null;
     }>
   >`
     WITH latest AS (
@@ -178,7 +180,8 @@ export async function getSalesTrend(
       sd."periodYear"                          AS "periodYear",
       sd."periodMonth"                         AS "periodMonth",
       SUM(sd."salesAmountMxn")::float8         AS sales_amount,
-      SUM(sd."salesUnits")::bigint             AS sales_units
+      SUM(sd."salesUnits")::bigint             AS sales_units,
+      SUM(sd."inventoryUnits")::bigint         AS inventory_units
     FROM "SelloutData" sd, latest
     WHERE sd."clientId" = ${clientId}
       AND sd."userId"   = ${userId}
@@ -195,6 +198,7 @@ export async function getSalesTrend(
     periodMonth: Number(r.periodMonth),
     salesAmountMxn: Number(r.sales_amount ?? 0),
     salesUnits: Number(r.sales_units ?? 0),
+    inventoryUnits: r.inventory_units === null ? null : Number(r.inventory_units),
   }));
 }
 
