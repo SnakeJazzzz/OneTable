@@ -1,0 +1,99 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancela runs en progreso de la misma ref cuando llega un push nuevo.
+# Evita gastar minutos en builds obsoletos sin afectar el run final.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # El nombre del check que GitHub registra para required status checks es la KEY
+  # del job ("ci" en este caso), no el `name:` del workflow.
+  # No agregamos `name: ci` adentro del job porque sería redundante y agrega
+  # ambigüedad si después se agregan más jobs.
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Postgres efímero. Health check garantiza que el step de migrate
+    # no se ejecute antes de que el container esté listo.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: onetable_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # Connection string al Postgres del service container.
+      # NO se usan secrets de Neon — CI corre standalone, sin tocar producción.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/onetable_test?schema=public
+      # AUTH_SECRET dummy de 32 bytes en base64 (formato que documenta auth.ts:22).
+      # Generado una sola vez con `openssl rand -base64 32` al cerrar B0; pineado
+      # acá para reproducibilidad. NUNCA reusar este valor en otro environment.
+      AUTH_SECRET: G0zzCIic/bXamnXRSeYLNL1GIsomqr2u19M/S0PeRZ8=
+      AUTH_URL: http://localhost:3000
+      # NO se setean DEMO_USER_EMAIL/PASSWORD: scripts/seed.ts:69-70 los tiene
+      # hardcoded como constants exportadas, no los lee de process.env. Como
+      # tampoco se corre seed en CI y los tests usan sus propios TEST_EMAIL
+      # aislados, agregarlos sería superficie inerte.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Static supply-chain checks contra estado commiteado.
+      # Corren ANTES de install: si fallan, no se descarga ningún package.
+      - name: Verify pinned package versions
+        run: |
+          if grep -E '"[\^~]' package.json; then
+            echo "::error::Pins flexibles (^ o ~) en package.json. Protocolo Mini Shai-Hulud requiere pins exactos."
+            exit 1
+          fi
+          echo "OK pins exact"
+
+      - name: Check lockfile for Mini Shai-Hulud tokens
+        run: |
+          if grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|router_init|setup\.mjs|router_runtime" pnpm-lock.yaml | grep -v lightningcss; then
+            echo "::error::Lockfile contiene un marker conocido de Mini Shai-Hulud."
+            exit 1
+          fi
+          echo "OK lockfile clean"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Apply migrations
+        run: pnpm prisma migrate deploy
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
