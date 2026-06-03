@@ -6,11 +6,18 @@ on:
   pull_request:
     branches: [main]
 
-# Cancela runs en progreso de la misma ref cuando llega un push nuevo.
-# Evita gastar minutos en builds obsoletos sin afectar el run final.
+# Cancela runs en progreso de la misma ref cuando llega un push nuevo en feature
+# branches. En `main` cada push completa su run para preservar audit trail y badges
+# (no se cancelan corridas sobre main aunque lleguen pushes rápidos consecutivos).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# Least-privilege para el GITHUB_TOKEN del workflow. El workflow nunca escribe al
+# repo, no comenta PRs, no llama la GitHub API — solo lee código fuente para
+# typecheck/build/test. Cualquier permiso extra sería superficie sin uso.
+permissions:
+  contents: read
 
 jobs:
   # El nombre del check que GitHub registra para required status checks es la KEY
