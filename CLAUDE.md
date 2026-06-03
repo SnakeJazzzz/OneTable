@@ -9,9 +9,9 @@ markdown# CLAUDE.md — OneTable Project Context
 **OneTable** — SaaS B2B para proveedores de retail en México. Consolida sell-out e inventario de 6 portales (Soriana, Chedraui, HEB, Al Super, La Comer, Amazon) en una tabla unificada + dashboard.
 
 **Primer cliente real:** VIKS Jerky Co.
-**Deadline crítico:** Demo ANTAD martes (~2-3 días). Estamos en Fase 1.
+**Fase actual:** Fase 2 (beta con VIKS). Fase 1 (demo ANTAD) cerrada y deployada en Vercel.
 **Repo:** github.com/SnakeJazzzz/OneTable
-**Branch activa:** `plan/onetable-fase1`
+**Branch de trabajo:** feature branches off `main`. **Estado actual:** branch protection en GitHub sigue OFF (ADR-001); la única protección contra commits directos a `main` es el hook local `block-main-writes`. **Plan Fase 2:** branch protection ON en pre-work B0 (ver `onetable-fase2-spec.md §11.1`).
 
 ---
 
@@ -32,10 +32,17 @@ markdown# CLAUDE.md — OneTable Project Context
 
 ## Documentos fuente de verdad (leer en este orden si arrancás fresh)
 
-1. `docs/specs/onetable-fase1-spec.md` — spec frozen con 5 ajustes aplicados. Q1-Q7 resueltos. Triage Sprint/Gate en §7.
-2. `docs/plans/onetable-fase1-plan.md` — plan ejecutable con 25 tasks. Mitigaciones supply chain en sección dedicada.
-3. `docs/handoff/session-1-end-of-day-1.md` — reporte del cierre de la sesión anterior (estado, commits, blockers).
-4. `docs/adr/ADR-001-branch-protection-off-during-setup.md` — decisión consciente sobre branch protection OFF.
+**Autoritativo para Fase 2 (lo que se está construyendo ahora):**
+
+1. `docs/specs/onetable-fase2-spec.md` — **fuente única de verdad** de decisiones, schema, flujos y orden de ejecución de Fase 2. Cualquier divergencia entre otros docs y esta spec: la spec gana.
+2. `docs/specs/onetable-fase3-spec-draft.md` — diseño congelado de items diferidos a Fase 3 (AES-GCM credenciales, multi-marca eventual, build de forecasting si llega tarde).
+
+**Histórico de Fase 1 (referencia, no autoritativo para Fase 2):**
+
+3. `docs/specs/onetable-fase1-spec.md` — spec del demo ANTAD. Útil para entender por qué algunas piezas son como son (UPSERT key, NULLS NOT DISTINCT, normalizer agnóstico). Las referencias prescriptivas a Fase 2 en este doc ya fueron corregidas con punteros a fase2-spec.
+4. `docs/plans/onetable-fase1-plan.md` — plan ejecutable Fase 1. Mismo tratamiento de punteros.
+5. `docs/handoff/session-*.md` + `docs/handoff/g9-vercel-deploy.md` — handoffs del demo Fase 1.
+6. `docs/adr/ADR-001-branch-protection-off-during-setup.md` — decisión consciente sobre branch protection OFF durante setup. Trigger ya disparado; se re-habilita en Fase 2 B0.
 
 **Para particularidades de los portales (parsers):** `docs/specs/viks-data/README.md`.
 
@@ -71,24 +78,24 @@ Hay un worm activo en npm desde mayo 11, 2026 ("Mini Shai-Hulud", CVE-2026-45321
 
 - **D1:** 3 portales habilitados en Fase 1 (Soriana, Chedraui, Amazon). HEB/AL SUPER/LA COMER aparecen en UI como "próximamente". Arquitectura drop-in para agregar los 3 restantes post-demo.
 - **D2:** Polish visual concentrado en Dashboard + Landing. Resto "functional, clean, minimal".
-- **D3:** Multi-tenancy de un solo nivel. User es Agency. Client tiene FK a User. Sin tabla Agency en Fase 1.
+- **D3 (revisado para Fase 2):** Multi-tenancy = 1 Client por cuenta, forzado en capa de app (helper `getCurrentClient(userId)` en `lib/tenant.ts`), no en schema. Fase 1 modeló User como agency con múltiples Clients; Fase 2 cierra el modelo a 1-a-1 sin migración de datos. Ver `onetable-fase2-spec.md §1`. Multi-marca futura = remover el check del helper.
 - **D4:** KPIs se calculan al query, NUNCA al insert. Incluye `daysOfInventory` (AJUSTE 1 al spec).
 - **D5:** Export Excel/CSV client-side con SheetJS. No server-side.
 - **D6:** Selector manual de portal en upload (no auto-detect).
 - **D7:** Productos sin mapear → `SelloutData.productId = NULL` + insert en `UnmappedProduct`. Banner en dashboard con CTA a Catálogo. No rechazar el upload.
-- **D8:** Branch protection en GitHub OFF durante setup. Hook `block-main-writes` protege. Ver ADR-001.
+- **D8 (estado presente vs plan Fase 2):** Branch protection en GitHub está OFF desde setup (ADR-001). Hoy la única protección contra commits directos a `main` es el hook local `block-main-writes`. **Plan Fase 2:** se re-habilita ON en pre-work B0 (`onetable-fase2-spec.md §11.1`) junto con CI de los 89 tests como required status check.
 
 ---
 
 ## Decisiones técnicas cerradas durante brainstorming
 
-- **Upload UX:** selector explícito por archivo (Soriana — Mixto, Chedraui — Mixto, Amazon — Ventas, Amazon — Inventario). Una `Upload` row por archivo.
-- **UPSERT key:** `(clientId, chain, storeId, portalRawProduct, periodYear, periodMonth)` con `NULLS NOT DISTINCT` (Postgres 15+) + `COALESCE` per campo. SQL usa `ON CONFLICT (cols)` NO `ON CONFLICT ON CONSTRAINT` (AJUSTE 5).
-- **Catálogo onboarding híbrido:** Excel opcional al crear cliente + incremental vía `UnmappedProduct`.
-- **PortalCredential:** username almacenado, password descartado silenciosamente (microcopy explícito sobre Fase 2 con KMS).
-- **Alert thresholds:** SIN_STOCK / CRITICO<7 / RIESGO<14 / ATENCION<21 / OK 21-60 / EXCESO>60 / SIN_DATOS. Configurables en Fase 2.
-- **Seed:** estático puro (user + client + catálogo + portal credentials). NO popula SelloutData. El demo ES el upload en vivo.
-- **Pre-flight obligatorio** antes de cada presentación.
+- **Upload UX (Fase 1 → revisado en Fase 2):** en Fase 1 vivió en Análisis con auto-detect del chain por filename. En Fase 2 se mueve a la card de cada portal en la página Portales, con chain implícito por la card (`onetable-fase2-spec.md §3.2.4`). Amazon usa dos inputs por separado (Ventas / Inventario).
+- **UPSERT key:** `(clientId, chain, storeId, portalRawProduct, periodYear, periodMonth)` con `NULLS NOT DISTINCT` (Postgres 15+) + `COALESCE` per campo. SQL usa `ON CONFLICT (cols)` NO `ON CONFLICT ON CONSTRAINT` (AJUSTE 5). Conservado en Fase 2.
+- **Catálogo onboarding (Fase 1 → reformulado en Fase 2):** en Fase 2 se separa en dos páginas. Parámetros maneja el catálogo canónico (SKUs + precios + thresholds) con importer nuevo `core/parameters/import.ts`. Portales maneja los mappings + unmapped + conflict resolution. Detalle en `onetable-fase2-spec.md §3.1` y `§3.2`.
+- **PortalCredential:** username almacenado, password descartado silenciosamente. Microcopy actual: "se solicitará al activar la automatización (Fase 3)". El cifrado AES-256-GCM se difiere a Fase 3 (ver `onetable-fase2-spec.md §6` y `onetable-fase3-spec-draft.md §1`).
+- **Alert thresholds:** defaults SIN_STOCK / CRITICO<7 / RIESGO<14 / ATENCION<21 / OK 21-60 / EXCESO>60 / SIN_DATOS. Configurables en Fase 2 vía tabla `ThresholdConfig` (ver `onetable-fase2-spec.md §4.5`); refactor de `classifyAlert` con templatización SQL en `onetable-fase2-spec.md §4.8`.
+- **Seed:** estático puro (user + client + catálogo + portal credentials). NO popula SelloutData. El demo ES el upload en vivo. Conservado en Fase 2.
+- **Pre-flight recomendado** antes de demos a VIKS (era obligatorio para ANTAD). Script en `scripts/preflight.ts`.
 - **Theme:** dark mode primero, accent emerald `#10B981` (HSL `160 84% 39%` — corregir de `158 64% 40%` en G2 Step 0).
 
 ---
@@ -135,7 +142,7 @@ pnpm test
 
 # Build
 pnpm build
-pnpm typecheck  # requiere agregar a package.json en G2 Step 0
+pnpm typecheck
 
 # Verificar pins
 grep -E '"[\^~]' package.json && echo "❌ FOUND" || echo "✅ pins exact"
@@ -160,27 +167,25 @@ grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|router_init|setup
 
 ## Pendientes conocidos del usuario (recordar cuando aplique)
 
-1. **`PREFLIGHT_DATABASE_URL` no agregado a `.env.example`** — hook `block-env-writes` bloqueó la edición. El usuario debe hacerlo manualmente vía `vi` antes de S11 (pre-flight).
-2. **Segunda Neon branch para preflight DB** — pendiente. Necesario antes de S11.
-3. **Prisma 6.19.3 deprecation warning** sobre `package.json#prisma` (deprecated en Prisma 7, migra a `prisma.config.ts`). Diferido a Fase 2.
-4. **G2 Step 0 follow-ups** del code quality review de G0:
-   - Emerald HSL: cambiar `158 64% 40%` → `160 84% 39%` en `app/globals.css` (`:root` y `.dark`).
-   - Agregar tokens shadcn faltantes (`--card`, `--popover`, `--accent`, `--destructive`, `--secondary`, `--input`, `--ring`, `--radius`).
-   - Agregar `typecheck` script al `package.json`.
-   - Reforzar `scripts/check-supply-chain.sh` con `set -euo pipefail` + quote vars.
-5. **clsx + tailwind-merge** se instalan en G2 Step 0b (`clsx@2.1.1`, `tailwind-merge@2.5.5`) bajo mitigación #6.
-6. **`upsertUnmapped()` race condition latente** en `core/normalizer/upsert.ts` — usa findUnique + create/update en vez de raw INSERT...ON CONFLICT. No bloquea Fase 1 (single concurrent upload), TODO para Fase 2.
-7. **Scaffolds pre-existentes commiteados** en `app/(auth)/`, `app/(dashboard)/`, `app/(marketing)/`, `app/api/`, `core/analytics/`, `core/types/`, `lib/`, `prisma/`. NO requieren limpieza — son estructura preparada para gates futuras.
+1. **`PREFLIGHT_DATABASE_URL` no agregado a `.env.example`** — hook `block-env-writes` bloqueó la edición. Verificado pendiente. Si Fase 2 reusa el preflight script, agregar manualmente.
+2. **Segunda Neon branch para preflight DB** — pendiente. Necesario si se reusa preflight.
+3. **Prisma 6.19.3 deprecation warning** sobre `package.json#prisma` (deprecated en Prisma 7, migra a `prisma.config.ts`). Diferido — decidir en Fase 2 si se migra o se sigue posponiendo.
+4. **G2 Step 0 follow-ups remanentes** (typecheck script ya HECHO en `package.json:15`):
+   - Emerald HSL: cambiar `158 64% 40%` → `160 84% 39%` en `app/globals.css` (`:root` y `.dark`). Verificar en pasada visual — el demo se deployó así que probablemente quedó OK.
+   - Tokens shadcn faltantes (`--card`, `--popover`, `--accent`, `--destructive`, `--secondary`, `--input`, `--ring`, `--radius`). Verificar.
+   - Reforzar `scripts/check-supply-chain.sh` con `set -euo pipefail` + quote vars. Verificar.
+5. **`upsertUnmapped()` race condition latente** en `core/normalizer/upsert.ts` — usa findUnique + create/update en vez de raw INSERT...ON CONFLICT. Se aborda en Fase 2 B4 (Portales) al refactorear normalizer para conflict resolution (`onetable-fase2-spec.md §8.3`).
+6. **Scaffolds pre-existentes commiteados** en `app/(auth)/`, `app/(dashboard)/`, `app/(marketing)/`, `app/api/`, `core/analytics/`, `core/types/`, `lib/`, `prisma/`. NO requieren limpieza — son estructura preparada para gates futuras.
 
 ---
 
 ## Cómo arranca cada sesión nueva
 
 1. Leer este `CLAUDE.md` (auto).
-2. `git log --oneline main..HEAD | head -15` para ver estado de commits.
-3. Leer `docs/handoff/session-N-end-of-day-X.md` más reciente.
-4. Identificar el próximo task del plan (`docs/plans/onetable-fase1-plan.md`).
-5. Confirmar con el usuario antes de dispatcheur el primer implementer.
+2. `git log --oneline main..HEAD | head -15` para ver estado de commits desde main.
+3. Leer `docs/handoff/session-N-end-of-day-X.md` más reciente si existe handoff Fase 2.
+4. **Identificar el próximo bloque/task contra `docs/specs/onetable-fase2-spec.md §12`** (orden B0→B6).
+5. Confirmar con el usuario antes de dispatchear el primer implementer.
 
 ---
 
