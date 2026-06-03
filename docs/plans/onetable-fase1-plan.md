@@ -2489,7 +2489,7 @@ pnpm dlx shadcn@latest add dialog input label checkbox collapsible alert-dialog 
 - [ ] **Step 3: Modal "+ Agregar Cliente"** con 3 secciones (Dialog de shadcn):
   - **Datos:** Input nombre, Input email opcional.
   - **Catálogo (opcional):** Input file accept=".xlsx" max 5MB.
-  - **Credenciales de portales:** una `Collapsible` por chain con Checkbox "activar", Label dinámico ("Email" para Amazon, "Usuario" para resto), Input password con microcopy "Se cifrará y almacenará en Fase 2".
+  - **Credenciales de portales:** una `Collapsible` por chain con Checkbox "activar", Label dinámico ("Email" para Amazon, "Usuario" para resto), Input password con microcopy "Se solicitará al activar la automatización (Fase 3)" (autoritativo: `onetable-fase2-spec.md §6`; detalle del cifrado en `onetable-fase3-spec-draft.md §1`).
 
 - [ ] **Step 4: Submit** — POST a `/api/clients` con multipart si hay Excel. Reportar warnings antes de cerrar.
 
@@ -2892,13 +2892,13 @@ Ambas deben resolverse antes de empezar G0 Step 5.
 
 ### Feature diferidas a Fase 2
 
-- **Thresholds configurables por cliente.** Defaults actuales en `core/alerts/classify.ts` son hardcoded y representan benchmarks de retail estándar (SIN_STOCK: `inv ≤ 0`, CRITICO: `<7d`, RIESGO: `7-14d`, ATENCION: `14-21d`, OK: `21-60d`, EXCESO: `>60d`). Demo del martes los presenta como configurables "en el próximo sprint". Implementación futura requiere: tabla `ThresholdConfig` per client, endpoint `GET/PATCH /api/config/thresholds`, refactor `classifyAlert` para aceptar config como param, UI de configuración. Estimación: 4-6h con TDD.
+- **Thresholds configurables por cliente.** Diseño completo y autoritativo en `onetable-fase2-spec.md §4.5` (tabla `ThresholdConfig` con columnas tipadas, 1-1 con Client, validación no-overlap al guardar) + `§4.8` (refactor `classifyAlert` con templatización SQL en `getDashboardKpis`, estimado 8-10h). Esta entrada queda como referencia histórica; la spec de Fase 2 es autoritativa. Defaults actuales en `core/alerts/classify.ts` son hardcoded y representan benchmarks de retail estándar (SIN_STOCK: `inv ≤ 0`, CRITICO: `<7d`, RIESGO: `7-14d`, ATENCION: `14-21d`, OK: `21-60d`, EXCESO: `>60d`). Demo del martes los presenta como configurables "en el próximo sprint".
 
-- **CRUD adicional de clients.** `POST /api/clients`, `PATCH /api/clients/[id]`, `DELETE /api/clients/[id]` difiere para G6 (Clientes page) post-demo.
+- **CRUD adicional de clients.** No se construye en Fase 2 (decisión: 1 Client por cuenta, signup crea User+Client atómicamente, ver `onetable-fase2-spec.md §1`). Esta entrada queda como referencia histórica del scope demo.
 
-- **Catalog import endpoint.** `POST /api/catalog/import` difiere para G7 (Catálogo page) post-demo. Reusa `core/catalog/import.ts` (S6) ya listo.
+- **Catalog import endpoint.** En Fase 2 vive en Parámetros y usa el módulo nuevo `core/parameters/import.ts` (SKUs + precios, ver `onetable-fase2-spec.md §10`); `core/catalog/import.ts` (S6) queda seed-only.
 
-- **Resolve-unmapped endpoint.** `POST /api/catalog/resolve-unmapped` difiere para G7 post-demo. Reusa el backfill logic del normalizer (S7).
+- **Resolve-unmapped endpoint.** En Fase 2 el flujo de resolución de mapeos (unmapped + conflict) vive en Portales, no en Catálogo/Parámetros (ver `onetable-fase2-spec.md §3.2` y `§8`). El backfill logic del normalizer (S7) se reusa.
 
 ### Hallazgos de data real (para guión del demo)
 

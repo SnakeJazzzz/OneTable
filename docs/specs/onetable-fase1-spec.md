@@ -19,9 +19,9 @@
 
 ### Inconsistencias resueltas en brainstorming
 1. **La Comer "milésimas":** SRS dice dividir entre 1000; sample data confirma valores en unidades crudas. La Comer está fuera de Fase 1; nota de verificación para Fase 2.
-2. **Duplicado en catálogo VIKS (AL SUPER):** misma string `(T)CARNE SECA TROZO CITRUS GINGER...` apunta a "Chilli Lime 100g" y "Habanero 100g". Es error de captura del cliente. AL SUPER fuera de Fase 1; al seedear se ejecuta `ON CONFLICT DO NOTHING` (last-wins) y se loguea warning. Cuando AL SUPER entre en Fase 2, la página Catálogo expone el conflicto para que el cliente lo resuelva.
+2. **Duplicado en catálogo VIKS (AL SUPER):** misma string `(T)CARNE SECA TROZO CITRUS GINGER...` apunta a "Chilli Lime 100g" y "Habanero 100g". Es error de captura del cliente. AL SUPER fuera de Fase 1; al seedear se ejecuta `ON CONFLICT DO NOTHING` (last-wins) y se loguea warning. Cuando AL SUPER entre en Fase 2 (bloque B6 del plan Fase 2), la página Portales expone el conflicto para que el cliente lo resuelva (ver `onetable-fase2-spec.md §8`).
 3. **Schema SRS vs README:** README supersedea SRS (más detallado y alineado con la realidad de la data).
-4. **D3 multi-tenancy aclarado:** sin tabla Agency en Fase 1. `Client.userId` FK directo. Tablas de data llevan `clientId` (FK) + `userId` (denormalizado) para queries rápidas. Tabla Agency se agrega con migración en Fase 2 si hace falta.
+4. **D3 multi-tenancy aclarado:** sin tabla Agency en Fase 1. `Client.userId` FK directo. Tablas de data llevan `clientId` (FK) + `userId` (denormalizado) para queries rápidas. Tabla Agency NO se agrega en Fase 2 (decisión: 1 Client por cuenta forzado en capa de app, ver `onetable-fase2-spec.md §1`). Se reevalúa si la tracción justifica multi-marca por cuenta en Fase 3+.
 
 ### Decisiones del usuario (D1–D8) ya commiteadas
 - **D1** — Parsers Fase 1: solo **Soriana, Chedraui, Amazon**. HEB / AL SUPER / LA COMER aparecen en UI con tooltip "Próximamente, llegan esta semana".
@@ -39,7 +39,7 @@
 - **Resumen post-upload:** `"X filas procesadas, Y nuevas, Z actualizadas, W sin mapear"`.
 - **Días de inventario:** `CASE WHEN salesUnits > 0 THEN (inventoryUnits::float / salesUnits) * 30 ELSE NULL END`. Frontend renderiza `NULL` como "—" o "sin rotación".
 - **Catálogo:** flujo híbrido. Modal de crear cliente con file input opcional para Excel formato VIKS pivoteado. Si no se sube, catálogo crece incremental vía unmapped queue.
-- **Credenciales de portal:** tabla `PortalCredential` con `username` storeado, `password` discarded silenciosamente, `hasPasswordPending bool`. Microcopy: "Password se cifrará y almacenará en Fase 2 con KMS, por ahora solo registramos el username". Label dinámico (`Email` para Amazon, `Usuario` para el resto). UI con checkbox + Collapsible por portal.
+- **Credenciales de portal:** tabla `PortalCredential` con `username` storeado, `password` discarded silenciosamente, `hasPasswordPending bool`. Microcopy: "Password se solicitará al activar la automatización (Fase 3), por ahora solo registramos el username". (El diseño criptográfico AES-GCM vive en `onetable-fase3-spec-draft.md §1`; `onetable-fase2-spec.md §6` es autoritativa para el microcopy actual.) Label dinámico (`Email` para Amazon, `Usuario` para el resto). UI con checkbox + Collapsible por portal.
 - **Dashboard scope:** FULL SRS (4 KPI cards + 5 charts + OneTable con filtros + badges + export). ~10-12h.
 - **Alert thresholds:** defaults propuestos (ver §6.3). Configurables en Fase 2.
 - **Auth:** Login + sign-up funcional + redirect inteligente desde `/`. NextAuth v5 + Credentials + JWT.
@@ -512,7 +512,7 @@ export function isPortalAvailable(chain: Chain): boolean {
 }
 ```
 
-**Drop-in nuevo portal en Fase 2:** crear `core/parsers/heb-ventas.ts` que exporte un `PortalParser` y agregar la línea al `REGISTRY`. Cero cambios en normalizer, API, UI (más allá de habilitar el portal en el selector).
+**Drop-in nuevo portal en Fase 2** (después de que B1 construya el registry — el registry NO existe hoy, ver `onetable-fase2-spec.md §11.3` y `§12`)**:** crear `core/parsers/heb-ventas.ts` que exporte un `PortalParser` y agregar la línea al `REGISTRY`. Cero cambios en normalizer, API, UI (más allá de habilitar el portal en el selector).
 
 ### 3.3 Responsabilidades de cada parser
 
@@ -678,7 +678,7 @@ Esto está en una API route `/api/catalog/resolve-unmapped` que se llama con `{ 
 **Misma estructura que `catalogo-productos.xlsx` (formato VIKS pivoteado):**
 
 - Sheet: `Catalogo_Producto` (case-sensitive).
-- Columna A: `Producto VIKS` (renombrable en Fase 2; en Fase 1 es literal — header debe decir esto).
+- Columna A: `Producto VIKS` (formato del seed-importer; en Fase 2 el importer user-facing de Parámetros es un módulo nuevo con columnas `Código` / `Producto` / `PrecioCompra` / `PrecioVenta`, ver `onetable-fase2-spec.md §10`).
 
   > Decisión: Fase 1 acepta header `Producto VIKS` exacto **O** `Producto` exacto. Ambos válidos. Más permisivo que esto requiere autodetect (cortado).
 
@@ -909,7 +909,7 @@ Cada gate se considera aprobado **solo** cuando todos los criterios listados se 
 - [ ] Modal tiene 3 secciones: Datos / Catálogo (opcional) / Credenciales de portales
 - [ ] Sección Credenciales: checkbox por portal expande Collapsible con username + password
 - [ ] Label dinámico: "Email" para Amazon, "Usuario" para resto
-- [ ] Microcopy explícito bajo password: "Se cifrará y almacenará en Fase 2"
+- [ ] Microcopy explícito bajo password: "Se solicitará al activar la automatización (Fase 3)" (autoritativo: `onetable-fase2-spec.md §6`)
 - [ ] File input Excel acepta solo .xlsx, valida tamaño <5MB
 - [ ] Submit sin Excel crea cliente con catálogo vacío + portal credentials
 - [ ] Submit con Excel parsea + valida + reporta warnings antes de cerrar modal
@@ -925,7 +925,7 @@ Cada gate se considera aprobado **solo** cuando todos los criterios listados se 
 - [ ] Por cada unmapped: dropdown "Mapear a producto existente" + botón "Mapear y backfillear"
 - [ ] Botón "+ Agregar como nuevo producto" crea Product + ProductMapping + backfill SelloutData
 - [ ] Confirmación visual cuando un mapeo se resuelve (toast + row desaparece del unmapped queue)
-- [ ] Conflict banner cuando un `portalString` apunta a >1 producto (cubrirá AL SUPER en Fase 2; en F1 no debería verse pero el código existe)
+- [ ] (Histórico G7 demo) Conflict banner cuando un `portalString` apunta a >1 producto. En Fase 2 esta funcionalidad se mueve a la página Portales (ver `onetable-fase2-spec.md §8`), no a Catálogo/Parámetros.
 
 #### G8 — Promotoría stub
 
@@ -1100,7 +1100,7 @@ Cuando el endpoint `GET /api/dashboard/kpis` se invoca SIN query params explíci
 - **HEB, AL SUPER, LA COMER parsers + normalizer.** UI los deshabilita con tooltip "Llegan esta semana".
 - **La Comer "milésimas":** validar empíricamente vs cliente real cuando se implemente el parser.
 - **Catálogo VIKS duplicate fix:** AL SUPER duplicado expuesto en UI con conflict banner.
-- **Storage real de passwords de portales:** integración con AWS KMS o equivalente. Mientras tanto, `PortalCredential.hasPasswordPending` documenta el estado.
+- **Storage real de passwords de portales:** AES-256-GCM con master key en env var, diferido a Fase 3 (ver `onetable-fase3-spec-draft.md §1`). KMS queda como upgrade futuro post-tracción. Mientras tanto, `PortalCredential.hasPasswordPending` documenta el estado.
 - **Fuzzy matching de SKUs con embeddings.** Por ahora solo string-literal match.
 - **Materialized views para KPIs** si performance se degrada con >100k rows por cliente.
 - **Tabla `Agency`** si aparece la necesidad de teams (multi-user por agencia).
