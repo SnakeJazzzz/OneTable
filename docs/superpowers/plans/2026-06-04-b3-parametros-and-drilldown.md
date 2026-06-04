@@ -104,13 +104,20 @@ export function makeCuid(): string {
 
 Renames the two stub routes and relabels the sidebar (deviation #3), and neutralizes the unmapped banner so the rename doesn't leave a dangling `/catalogo` href (deviation #2). One atomic commit — the route delete and the href fix must land together or `/catalogo` 404s.
 
-**Files:** rename `app/(dashboard)/catalogo/` → `parametros/`, `app/(dashboard)/clientes/` → `portales/`; Modify `components/dashboard/sidebar.tsx`, `components/dashboard/unmapped-banner.tsx`.
+**Files:** rename `app/(dashboard)/catalogo/` → `parametros/`, `app/(dashboard)/clientes/` → `portales/`; Modify `middleware.ts`, `components/dashboard/sidebar.tsx`, `components/dashboard/unmapped-banner.tsx`.
 
-- [ ] **Step 1: Pre-check refs** — `grep -rn "/catalogo\|/clientes" app components lib tests` to confirm the only references are sidebar.tsx (2) + unmapped-banner.tsx (1). If any test references them, update in this task.
+- [ ] **Step 1: Pre-check refs (BROAD grep — the build will NOT catch a stale route ref).** Run BOTH forms (with and without the leading slash, to catch bare-string refs, hrefs without a slash, and dynamically-built paths), repo-wide over code:
+  - `grep -rn "catalogo\|clientes" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.json" . | grep -v node_modules | grep -v "\.next/" | grep -v "/docs/"`
+  - `grep -rn "/catalogo\|/clientes" --include="*.ts" --include="*.tsx" .`
+  - Also eyeball auth/redirect surfaces specifically: `middleware.ts`, `auth.ts`, `app/(auth)/**`, and any `router.push`/`redirect(`/`callbackUrl` (verified: login/signup push to `/dashboard`, unaffected — but re-confirm).
+  - **List EVERY file the grep returns in the Task 2 report so the user can confirm the list is complete before the old routes are deleted.** Classify each hit as (a) a route reference to update, or (b) a false positive to leave alone.
+  - **Known hits as of plan-writing (2026-06-04 grep):** TO UPDATE → `middleware.ts:7-8` (`PROTECTED_PREFIXES` — **critical: rename without this leaves `/parametros` and `/portales` UNPROTECTED by auth**), `components/dashboard/sidebar.tsx:24-25`, `components/dashboard/unmapped-banner.tsx:20`. FALSE POSITIVES (leave alone) → `tests/catalog/import.test.ts` and `scripts/seed.ts` (reference the xlsx fixture `catalogo-productos.xlsx`, not the route), `core/catalog/import.ts` dir name (the seed importer module, not a route), `app/(dashboard)/clientes/page.tsx:6` (copy text inside the stub being renamed — moves with the dir). If the live grep returns anything beyond this list, STOP and report before deleting routes.
 
 - [ ] **Step 2: Move the route dirs** with `git mv` (preserve history):
   - `git mv "app/(dashboard)/catalogo" "app/(dashboard)/parametros"`
   - `git mv "app/(dashboard)/clientes" "app/(dashboard)/portales"`
+
+- [ ] **Step 2b: Update `middleware.ts` `PROTECTED_PREFIXES`** — replace `'/clientes'`→`'/portales'` and `'/catalogo'`→`'/parametros'`. Without this the renamed routes are not auth-gated (an unauthenticated user reaches them instead of redirecting to `/login`). This is the single most important ref the sidebar/banner-only grep missed.
 
 - [ ] **Step 3: Rewrite the moved stubs** — `parametros/page.tsx` heading "Parámetros" (real UI lands in Task 6; keep a minimal stub here so the route compiles); `portales/page.tsx` heading "Portales", text "Configuración de portales — disponible en la siguiente entrega." (built in B4).
 
@@ -118,11 +125,13 @@ Renames the two stub routes and relabels the sidebar (deviation #3), and neutral
 
 - [ ] **Step 5: Neutralize `unmapped-banner.tsx`** (decision #2). Remove the `<Link href="/catalogo">` block entirely; render only the count text. Keep the `count <= 0 → null` guard. Add a one-line comment: `// B4 re-points this to /portales once Portales conflict/unmapped resolution exists (spec §3.2/§8.4).`
 
-- [ ] **Step 6: `pnpm typecheck` + `pnpm build`** → PASS (build catches a missing route reference). Manually hit `/parametros` and `/portales` render; `/catalogo` and `/clientes` 404 (expected).
+- [ ] **Step 6: `pnpm typecheck` + `pnpm build`** → PASS. **Note: the build does NOT validate hrefs** — Next does not fail the build for a `<Link>` to a non-existent route (a stale href only 404s at runtime). So a green build here proves nothing about broken links; the real 404/route verification is the broad grep in Step 1 plus the manual smoke in Task 7 (hit `/parametros` and `/portales` → render; `/catalogo` and `/clientes` → 404). Do not treat a passing build as evidence the rename is complete.
 
 - [ ] **Step 7: Supply-chain verification (3 commands).**
 
 - [ ] **Step 8: Commit** — `feat(b3): rename catalogo→parametros, clientes→portales; neutralize unmapped banner`. Body documents deviations #2 and #3 with their reasons (route stubs are empty so rename is cheap now; banner retarget deferred to B4 to avoid a coming-soon dead-end).
+
+> **Transitional state between Task 2 and Task 3 (expected, correct — not a bug when reviewing intermediate commits):** Task 2 neutralizes the banner but does NOT yet move the drill-down, so after Task 2's commit the (now neutral, link-less) banner still renders on the Dashboard via `<OneTable>`. The drill-down + banner only leave the Dashboard in Task 3. So a reviewer looking at the Task 2 commit in isolation will see a neutralized banner still on Dashboard — that is the intended interim state, not a missed cleanup.
 
 ---
 
@@ -270,7 +279,7 @@ Run `pnpm dev`, sign in with the seed account, and verify:
 - [ ] **Parámetros CRUD:** create a SKU, edit its name/prices, rename its `skuCode` (verify it persists and existing data isn't orphaned), delete a SKU. Base prices save and round-trip.
 - [ ] **Threshold validation:** entering overlapping cuts (e.g. riesgo ≤ crítico) shows an **inline** error and blocks save; a valid increasing set saves and persists on reload.
 - [ ] **Importer round-trip:** export the catalog, re-import the same file → no duplicate SKUs, prices intact (empty-cell non-destruction visible); import an Excel without a `Código` column → new-catalog warning appears.
-- [ ] **Integration regression:** after editing thresholds in Parámetros, the Dashboard "SKUs con alerta activa" KPI and the Análisis alert column reflect the new cuts (closes the loop B2→B3).
+- [ ] **Integration regression:** after editing thresholds in Parámetros, the Dashboard "SKUs con alerta activa" KPI and the Análisis alert column reflect the new cuts (closes the loop B2→B3). **If the KPI does NOT change after saving new thresholds, do NOT file a bug yet — first rule out caching:** force a hard refresh (Cmd-Shift-R), and check whether the data path is cached (Next RSC payload cache, any `unstable_cache`/`revalidate` on the KPI/threshold fetch, or stale browser-side hook state that needs a refetch). Only after a hard refresh still shows stale cuts is it a real regression. (Thresholds are loaded once per request server-side via `getThresholdCuts`, so a missing revalidation/refetch is the likeliest false alarm.)
 
 When all boxes pass, the gate is approved by the user. Record any defects as follow-ups; do not mark B3 complete on green CI alone.
 
