@@ -14,8 +14,12 @@ describe('getParser', () => {
   });
 
   it('returns null for an unregistered (chain, fileType)', () => {
-    // HEB / AL_SUPER / LA_COMER parsers are dropped in B6.
+    // HEB / AL_SUPER / LA_COMER parsers are dropped in B6 — all three must
+    // return null today so this test fails loudly if one is half-registered.
     expect(getParser('HEB', 'MIXED')).toBeNull();
+    expect(getParser('AL_SUPER', 'MIXED')).toBeNull();
+    expect(getParser('LA_COMER', 'MIXED')).toBeNull();
+    // Registered chain, wrong fileType also misses.
     expect(getParser('AMAZON', 'MIXED')).toBeNull();
     expect(getParser('SORIANA', 'VENTAS')).toBeNull();
   });
