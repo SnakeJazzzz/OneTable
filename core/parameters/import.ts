@@ -31,20 +31,60 @@ const PRODUCTO_KEYS = new Set(['producto']);
 const PRECIO_COMPRA_KEYS = new Set(['preciocompra', 'precio compra']);
 const PRECIO_VENTA_KEYS = new Set(['precioventa', 'precio venta']);
 
-// Returns a trimmed string price if the cell holds a real numeric value, else
-// null (blank / null / non-numeric are all treated as "absent" — no write,
-// never zero). We pass the raw numeric STRING to Prisma's Decimal field.
-function parsePrice(raw: unknown): string | null {
-  if (raw === null || raw === undefined) return null;
+// Max integer-part value for a Decimal(12,2) column: 10 integer digits, so the
+// numeric value must be < 10^10. Postgres rounds extra decimal places (scale)
+// automatically, so we only guard integer-part precision, not decimal places.
+const DECIMAL_12_2_MAX_EXCLUSIVE = 10_000_000_000; // 10^10
+
+// Result of parsing a price cell:
+// - { ok: true; value } → a canonical, non-negative decimal STRING to write.
+// - { ok: false; reason: 'absent' } → blank / null / non-numeric → no write.
+// - { ok: false; reason: 'tooLarge' } → numeric but exceeds Decimal(12,2);
+//   caller omits the write AND surfaces a warning so the user isn't left
+//   wondering why the price silently vanished.
+type PriceParse =
+  | { ok: true; value: string }
+  | { ok: false; reason: 'absent' | 'tooLarge' };
+
+// Strict, non-negative plain decimal only. Rejects hex ("0x10"), scientific
+// notation ("1e3"), signs ("-5"), commas, currency symbols, embedded
+// whitespace — ALL treated as "absent" (no write, never zero), per §10.2/§10.3.
+function parsePrice(raw: unknown): PriceParse {
+  if (raw === null || raw === undefined) return { ok: false, reason: 'absent' };
+
   if (typeof raw === 'number') {
-    return Number.isFinite(raw) ? String(raw) : null;
+    if (!Number.isFinite(raw) || raw < 0) return { ok: false, reason: 'absent' };
+    if (raw >= DECIMAL_12_2_MAX_EXCLUSIVE) return { ok: false, reason: 'tooLarge' };
+    return { ok: true, value: String(raw) };
   }
+
   const s = String(raw).trim();
-  if (s === '') return null;
-  // Accept plain decimal numbers only. Anything non-numeric is "absent".
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  return s;
+  if (s === '') return { ok: false, reason: 'absent' };
+  // Accept ONLY a plain non-negative decimal; anything else is "absent".
+  if (!/^\d+(\.\d+)?$/.test(s)) return { ok: false, reason: 'absent' };
+  if (Number(s) >= DECIMAL_12_2_MAX_EXCLUSIVE) return { ok: false, reason: 'tooLarge' };
+  return { ok: true, value: s };
+}
+
+// Resolve a price cell into a writable decimal string (or null = no write),
+// emitting a warning on the result when the value is numeric but out of range.
+// Keeps parsePrice pure; warning emission lives here, in importParameters scope.
+function resolvePrice(
+  key: string | null,
+  row: Record<string, unknown>,
+  label: 'Compra' | 'Venta',
+  nameStandard: string,
+  result: ParametersImportResult,
+): string | null {
+  if (!key) return null;
+  const parsed = parsePrice(row[key]);
+  if (parsed.ok) return parsed.value;
+  if (parsed.reason === 'tooLarge') {
+    result.warnings.push(
+      `Precio ${label} fuera de rango para "${nameStandard}" (excede ${'numeric(12,2)'}); se omitió ese precio.`,
+    );
+  }
+  return null;
 }
 
 function cellToString(raw: unknown): string {
@@ -104,8 +144,8 @@ export async function importParameters(
       continue;
     }
 
-    const purchase = precioCompraKey ? parsePrice(row[precioCompraKey]) : null;
-    const sale = precioVentaKey ? parsePrice(row[precioVentaKey]) : null;
+    const purchase = resolvePrice(precioCompraKey, row, 'Compra', nameStandard, result);
+    const sale = resolvePrice(precioVentaKey, row, 'Venta', nameStandard, result);
 
     const rawCode = codigoKey ? cellToString(row[codigoKey]) : '';
 

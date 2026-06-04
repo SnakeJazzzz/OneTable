@@ -37,53 +37,59 @@ describe('importParameters (additive, idempotent, non-destructive)', () => {
     await db.$disconnect();
   });
 
-  it('Código present + not in DB → INSERT with that code as the user override', async () => {
-    const buf = buildBuffer([HEADER, ['CL-86', 'Chilli Lime 86g', '100.00', '150.50']]);
-    const res = await importParameters({ clientId, fileBuffer: buf }, db);
+  it('Código lifecycle: INSERT → UPDATE (Excel-wins) → empty cells preserve prices', async () => {
+    // Single test walking the full lifecycle on one row so the insert→update→
+    // non-destruction chain is explicit and not coupled across separate `it`s
+    // via shared mutable DB state. Fresh client keeps it fully isolated.
+    const email = 'test-parameters-import-lifecycle@example.com';
+    await db.user.deleteMany({ where: { email } });
+    const u = await db.user.create({ data: { email, passwordHash: 'x' } });
+    const c = await db.client.create({ data: { name: 'TEST LIFECYCLE', userId: u.id } });
+    try {
+      // Step 1: Código present + not in DB → INSERT with that code.
+      const insertBuf = buildBuffer([HEADER, ['CL-86', 'Chilli Lime 86g', '100.00', '150.50']]);
+      const insertRes = await importParameters({ clientId: c.id, fileBuffer: insertBuf }, db);
+      expect(insertRes.created).toBe(1);
+      expect(insertRes.updated).toBe(0);
+      expect(insertRes.newCatalogMode).toBe(false);
 
-    expect(res.created).toBe(1);
-    expect(res.updated).toBe(0);
-    expect(res.newCatalogMode).toBe(false);
+      let p = await db.product.findUnique({
+        where: { clientId_skuCode: { clientId: c.id, skuCode: 'CL-86' } },
+      });
+      expect(p).not.toBeNull();
+      expect(p!.nameStandard).toBe('Chilli Lime 86g');
+      expect(p!.purchasePriceBase!.toString()).toBe('100');
+      expect(p!.salePriceBase!.toString()).toBe('150.5');
 
-    const p = await db.product.findUnique({
-      where: { clientId_skuCode: { clientId, skuCode: 'CL-86' } },
-    });
-    expect(p).not.toBeNull();
-    expect(p!.nameStandard).toBe('Chilli Lime 86g');
-    expect(p!.purchasePriceBase!.toString()).toBe('100');
-    expect(p!.salePriceBase!.toString()).toBe('150.5');
-  });
+      // Step 2: Código present + exists → UPDATE name + prices (Excel-wins).
+      const updateBuf = buildBuffer([HEADER, ['CL-86', 'Chili Lime 86g', '110.00', '160.00']]);
+      const updateRes = await importParameters({ clientId: c.id, fileBuffer: updateBuf }, db);
+      expect(updateRes.created).toBe(0);
+      expect(updateRes.updated).toBe(1);
 
-  it('Código present + exists → UPDATE name + prices (Excel-wins)', async () => {
-    const buf = buildBuffer([HEADER, ['CL-86', 'Chili Lime 86g', '110.00', '160.00']]);
-    const res = await importParameters({ clientId, fileBuffer: buf }, db);
+      p = await db.product.findUnique({
+        where: { clientId_skuCode: { clientId: c.id, skuCode: 'CL-86' } },
+      });
+      expect(p!.nameStandard).toBe('Chili Lime 86g');
+      expect(p!.purchasePriceBase!.toString()).toBe('110');
+      expect(p!.salePriceBase!.toString()).toBe('160');
 
-    expect(res.created).toBe(0);
-    expect(res.updated).toBe(1);
+      // Step 3: re-import with empty price cells keeps prior prices (§10.3).
+      const emptyBuf = buildBuffer([HEADER, ['CL-86', 'Chili Lime 86g', '', '']]);
+      const emptyRes = await importParameters({ clientId: c.id, fileBuffer: emptyBuf }, db);
+      expect(emptyRes.updated).toBe(1);
 
-    const p = await db.product.findUnique({
-      where: { clientId_skuCode: { clientId, skuCode: 'CL-86' } },
-    });
-    expect(p!.nameStandard).toBe('Chili Lime 86g');
-    expect(p!.purchasePriceBase!.toString()).toBe('110');
-    expect(p!.salePriceBase!.toString()).toBe('160');
-  });
-
-  it('Re-import with empty price cells keeps prior prices (non-destruction §10.3)', async () => {
-    // CL-86 currently has purchase=110, sale=160. Re-import with blank prices.
-    const buf = buildBuffer([HEADER, ['CL-86', 'Chili Lime 86g', '', '']]);
-    const res = await importParameters({ clientId, fileBuffer: buf }, db);
-
-    expect(res.updated).toBe(1);
-
-    const p = await db.product.findUnique({
-      where: { clientId_skuCode: { clientId, skuCode: 'CL-86' } },
-    });
-    // Prices MUST be untouched — empty cell never NULLs the DB.
-    expect(p!.purchasePriceBase).not.toBeNull();
-    expect(p!.salePriceBase).not.toBeNull();
-    expect(p!.purchasePriceBase!.toString()).toBe('110');
-    expect(p!.salePriceBase!.toString()).toBe('160');
+      p = await db.product.findUnique({
+        where: { clientId_skuCode: { clientId: c.id, skuCode: 'CL-86' } },
+      });
+      // Prices MUST be untouched — empty cell never NULLs the DB.
+      expect(p!.purchasePriceBase).not.toBeNull();
+      expect(p!.salePriceBase).not.toBeNull();
+      expect(p!.purchasePriceBase!.toString()).toBe('110');
+      expect(p!.salePriceBase!.toString()).toBe('160');
+    } finally {
+      await db.user.deleteMany({ where: { email } });
+    }
   });
 
   it('Código empty → INSERT with makeCuid()', async () => {
@@ -210,6 +216,86 @@ describe('importParameters (additive, idempotent, non-destructive)', () => {
       const selloutAfter = await db.selloutData.count({ where: { clientId: c.id } });
       expect(mappingsAfter).toBe(mappingsBefore);
       expect(selloutAfter).toBe(selloutBefore);
+    } finally {
+      await db.user.deleteMany({ where: { email } });
+    }
+  });
+
+  it('numeric-typed price cells import exactly (typeof === number branch)', async () => {
+    const email = 'test-parameters-import-numeric@example.com';
+    await db.user.deleteMany({ where: { email } });
+    const u = await db.user.create({ data: { email, passwordHash: 'x' } });
+    const c = await db.client.create({ data: { name: 'TEST NUMERIC', userId: u.id } });
+    try {
+      // aoa_to_sheet preserves JS number types, so these exercise the numeric
+      // branch of parsePrice (NOT the string branch).
+      const buf = buildBuffer([HEADER, ['NUM-1', 'Numeric Cell', 100.5, 200]]);
+      const res = await importParameters({ clientId: c.id, fileBuffer: buf }, db);
+      expect(res.created).toBe(1);
+
+      const p = await db.product.findUnique({
+        where: { clientId_skuCode: { clientId: c.id, skuCode: 'NUM-1' } },
+      });
+      expect(p!.purchasePriceBase!.toString()).toBe('100.5');
+      expect(p!.salePriceBase!.toString()).toBe('200');
+    } finally {
+      await db.user.deleteMany({ where: { email } });
+    }
+  });
+
+  it('malformed price strings are treated as absent (no silent corruption)', async () => {
+    const email = 'test-parameters-import-malformed@example.com';
+    await db.user.deleteMany({ where: { email } });
+    const u = await db.user.create({ data: { email, passwordHash: 'x' } });
+    const c = await db.client.create({ data: { name: 'TEST MALFORMED', userId: u.id } });
+    try {
+      // Hex "0x10" (Number→16), scientific "1e3" (Number→1000), "abc", "-5":
+      // each MUST be absent (null), never coerced to a number. This would FAIL
+      // against the old permissive parsePrice (which returned 16 / 1000 / -5).
+      const buf = buildBuffer([
+        HEADER,
+        ['MAL-1', 'Malformed', '0x10', '1e3'],
+        ['MAL-2', 'Malformed Abc', 'abc', '-5'],
+      ]);
+      const res = await importParameters({ clientId: c.id, fileBuffer: buf }, db);
+      expect(res.created).toBe(2);
+
+      const p1 = await db.product.findUnique({
+        where: { clientId_skuCode: { clientId: c.id, skuCode: 'MAL-1' } },
+      });
+      expect(p1!.purchasePriceBase).toBeNull();
+      expect(p1!.salePriceBase).toBeNull();
+
+      const p2 = await db.product.findUnique({
+        where: { clientId_skuCode: { clientId: c.id, skuCode: 'MAL-2' } },
+      });
+      expect(p2!.purchasePriceBase).toBeNull();
+      expect(p2!.salePriceBase).toBeNull();
+    } finally {
+      await db.user.deleteMany({ where: { email } });
+    }
+  });
+
+  it('over-range price is omitted with a warning; in-range price still writes', async () => {
+    const email = 'test-parameters-import-overrange@example.com';
+    await db.user.deleteMany({ where: { email } });
+    const u = await db.user.create({ data: { email, passwordHash: 'x' } });
+    const c = await db.client.create({ data: { name: 'TEST OVERRANGE', userId: u.id } });
+    try {
+      // 123456789012345 exceeds Decimal(12,2) → purchase omitted + warning.
+      // 5.00 fits → sale still written. No throw.
+      const buf = buildBuffer([HEADER, ['BIG-1', 'Too Big', '123456789012345', '5.00']]);
+      const res = await importParameters({ clientId: c.id, fileBuffer: buf }, db);
+      expect(res.created).toBe(1);
+      expect(res.warnings.some((w) => w.includes('Too Big') && w.includes('fuera de rango'))).toBe(
+        true,
+      );
+
+      const p = await db.product.findUnique({
+        where: { clientId_skuCode: { clientId: c.id, skuCode: 'BIG-1' } },
+      });
+      expect(p!.purchasePriceBase).toBeNull();
+      expect(p!.salePriceBase!.toString()).toBe('5');
     } finally {
       await db.user.deleteMany({ where: { email } });
     }
