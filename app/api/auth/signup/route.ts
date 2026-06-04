@@ -76,7 +76,7 @@ export async function POST(req: Request): Promise<Response> {
         email: emailRaw,
         passwordHash,
         clients: {
-          create: { name: clientNameRaw },
+          create: { name: clientNameRaw, thresholdConfig: { create: {} } },
         },
       },
       select: {

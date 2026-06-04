@@ -41,34 +41,30 @@ import type { Chain, FileType } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
-import { sorianaParser } from '@/core/parsers/soriana';
-import { chedrauiParser } from '@/core/parsers/chedraui';
-import { amazonVentasParser } from '@/core/parsers/amazon-ventas';
-import { amazonInvParser } from '@/core/parsers/amazon-inv';
-import type { PortalParser } from '@/core/parsers/types';
+import { getParser } from '@/core/parsers/registry';
 import { normalize } from '@/core/normalizer';
 
 // =====================================================================
 // File detection
 // =====================================================================
 
-type DetectedUpload = { chain: Chain; fileType: FileType; parser: PortalParser };
+type DetectedUpload = { chain: Chain; fileType: FileType };
 
 function detectUpload(filename: string): DetectedUpload | null {
   const lower = filename.toLowerCase();
   // Amazon ventas/inv must come BEFORE the generic amazon check; ventas is
   // most-specific so we test it first.
   if (/amazon.*ventas/.test(lower)) {
-    return { chain: 'AMAZON', fileType: 'VENTAS', parser: amazonVentasParser };
+    return { chain: 'AMAZON', fileType: 'VENTAS' };
   }
   if (/amazon.*inv/.test(lower)) {
-    return { chain: 'AMAZON', fileType: 'INVENTARIO', parser: amazonInvParser };
+    return { chain: 'AMAZON', fileType: 'INVENTARIO' };
   }
   if (/soriana/.test(lower)) {
-    return { chain: 'SORIANA', fileType: 'MIXED', parser: sorianaParser };
+    return { chain: 'SORIANA', fileType: 'MIXED' };
   }
   if (/chedraui/.test(lower)) {
-    return { chain: 'CHEDRAUI', fileType: 'MIXED', parser: chedrauiParser };
+    return { chain: 'CHEDRAUI', fileType: 'MIXED' };
   }
   return null;
 }
@@ -188,6 +184,14 @@ async function processOneFile(
     };
   }
 
+  const parser = getParser(detected.chain, detected.fileType);
+  if (!parser) {
+    return {
+      filename: file.name,
+      error: `no parser registered for ${detected.chain}/${detected.fileType}`,
+    };
+  }
+
   const t0 = Date.now();
   const buffer = Buffer.from(await file.arrayBuffer());
   const fileHash = createHash('sha256').update(buffer).digest('hex');
@@ -207,7 +211,7 @@ async function processOneFile(
   });
 
   try {
-    const parsed = await detected.parser.parse({
+    const parsed = await parser.parse({
       buffer,
       fileType: detected.fileType,
       originalFilename: file.name,

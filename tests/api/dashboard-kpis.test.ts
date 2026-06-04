@@ -22,7 +22,7 @@ describe('GET /api/dashboard/kpis', () => {
     const c = await db.client.create({ data: { name: 'TEST API KPIS S12', userId } });
     clientId = c.id;
 
-    const product = await db.product.create({ data: { clientId, nameStandard: 'PROD-X' } });
+    const product = await db.product.create({ data: { clientId, nameStandard: 'PROD-X', skuCode: 'SKU-KPI-1' } });
     const upload = await db.upload.create({
       data: {
         clientId,

@@ -1,6 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import * as XLSX from 'xlsx';
 import type { PrismaClient } from '@prisma/client';
 import { Chain } from '@prisma/client';
+
+// cuid-shaped opaque id, generated in the TS layer (schema has no @default on skuCode).
+// Duplicates the private makeCuid() in core/normalizer/upsert.ts; both stay inline for
+// B1 (no cross-module export to keep this seed-only file's scope unchanged, §10.1).
+// Consolidate into a shared core/ids.ts when B3 adds more production create sites.
+function makeSkuCode(): string {
+  return `c${randomUUID().replace(/-/g, '').slice(0, 24)}`;
+}
 
 export type CatalogImportResult = {
   productsCreated: number;
@@ -65,9 +74,12 @@ export async function importCatalog(
     const nameStandard = String(row[standardHeader] ?? '').trim();
     if (!nameStandard) continue;
 
-    // Get-or-create product
-    const existing = await db.product.findUnique({
-      where: { clientId_nameStandard: { clientId: input.clientId, nameStandard } },
+    // Get-or-create product. After §4.2 removed @@unique([clientId, nameStandard]),
+    // look up by (clientId, nameStandard) via findFirst (the compound key no longer
+    // exists on the generated client). On the reset+reseed path the table is empty,
+    // so the "existing" branch never fires; the lookup is kept for direct callers.
+    const existing = await db.product.findFirst({
+      where: { clientId: input.clientId, nameStandard },
     });
 
     let productId: string;
@@ -76,7 +88,7 @@ export async function importCatalog(
       productId = existing.id;
     } else {
       const created = await db.product.create({
-        data: { clientId: input.clientId, nameStandard },
+        data: { clientId: input.clientId, nameStandard, skuCode: makeSkuCode() },
       });
       stats.productsCreated++;
       productId = created.id;

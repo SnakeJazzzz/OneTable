@@ -114,7 +114,7 @@ export async function main(externalDb?: PrismaClient): Promise<void> {
       },
     });
     const client = await db.client.create({
-      data: { name: DEMO_CLIENT_NAME, userId: user.id },
+      data: { name: DEMO_CLIENT_NAME, userId: user.id, thresholdConfig: { create: {} } },
     });
 
     console.log('[seed] Importing catalogo-productos.xlsx via core/catalog/import…');

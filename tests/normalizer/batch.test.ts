@@ -146,7 +146,7 @@ describe('normalize() batched UPSERT (H2)', () => {
   it('resolves mappings without per-row DB hits (mappingLookup is pre-resolved JS)', async () => {
     // Insert 1 mapping; build 1,000 rows referencing same portalRawProduct.
     const product = await db.product.create({
-      data: { clientId, nameStandard: 'TEST-MAPPED-PRODUCT' },
+      data: { clientId, nameStandard: 'TEST-MAPPED-PRODUCT', skuCode: 'SKU-BATCH-1' },
     });
     await db.productMapping.create({
       data: { clientId, productId: product.id, chain: CHAIN, portalString: 'MAPPED-PROD' },
