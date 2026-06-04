@@ -21,6 +21,7 @@
 
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth-helpers';
+import { getThresholdCuts } from '@/lib/thresholds';
 import {
   getDashboardKpis,
   getSalesTrend,
@@ -81,12 +82,15 @@ export async function GET(req: Request): Promise<Response> {
   const baseParams = { clientId, userId };
   const periodParams = { ...baseParams, periodYear, periodMonth };
 
+  // Per-client alert bands, loaded ONCE per request (not per row).
+  const cuts = await getThresholdCuts(db, clientId);
+
   // Six queries in parallel — independent, no shared state.
   const [kpis, trend, byChain, semaforo, topSkus, daysInv] = await Promise.all([
-    getDashboardKpis(db, periodParams),
+    getDashboardKpis(db, periodParams, cuts),
     getSalesTrend(db, { ...baseParams, monthsBack: TREND_MONTHS_BACK }),
     getSalesByChainForPeriod(db, periodParams),
-    getInventorySemaforo(db, periodParams),
+    getInventorySemaforo(db, periodParams, cuts),
     getTopSkusByChain(db, { ...periodParams, limit: TOP_SKUS_LIMIT }),
     getDaysOfInventoryBySku(db, periodParams),
   ]);
