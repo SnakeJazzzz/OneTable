@@ -8,6 +8,7 @@ import {
   getTopSkusByChain,
   getDaysOfInventoryBySku,
 } from '@/core/kpis/queries';
+import { DEFAULT_CUTS } from '@/core/alerts/classify';
 
 const db = new PrismaClient();
 const TEST_EMAIL = 'test-kpis-s8@example.com';
@@ -192,7 +193,7 @@ describe('KPI queries (S8) — integration against Neon', () => {
         userId,
         periodYear: 2025,
         periodMonth: 3,
-      });
+      }, DEFAULT_CUTS);
 
       // H1: F and G added 20+50+100+20=190 MXN, 2+5+10+2=19 units to the seed.
       expect(kpis.salesAmountMxn).toBe(3740);
@@ -211,7 +212,7 @@ describe('KPI queries (S8) — integration against Neon', () => {
         userId,
         periodYear: 2024,
         periodMonth: 10, // no 2024-09 data
-      });
+      }, DEFAULT_CUTS);
       expect(kpis.variationPct).toBeNull();
     });
 
@@ -222,12 +223,26 @@ describe('KPI queries (S8) — integration against Neon', () => {
         userId,
         periodYear: 2025,
         periodMonth: 1,
-      });
+      }, DEFAULT_CUTS);
       // 2025-01 SORIANA sales = 100*1=100, AMAZON null → total $ = 100
       // 2024-12 SORIANA sales = 100*12=1200, AMAZON null → total $ = 1200
       // variation = (100-1200)/1200*100 ≈ -91.666
       expect(kpis.salesAmountMxn).toBe(100);
       expect(kpis.variationPct).toBeCloseTo(-91.6667, 3);
+    });
+
+    it('templatized KPI4 threshold: wider riesgo counts more SKUs', async () => {
+      // Default riesgo=14 → alerted SKUs {A, E, F, G} = 4 (asserted above).
+      // riesgo=30 additionally catches AMAZON productB: inv=80 / sales=100 * 30
+      // = 24 daysInv, which is < 30 but not < 14. Proves cuts.riesgo is bound
+      // into the SQL, not the old hardcoded 14.
+      const wide = { critico: 7, riesgo: 30, atencion: 40, exceso: 60 };
+      const kpis = await getDashboardKpis(
+        db,
+        { clientId, userId, periodYear: 2025, periodMonth: 3 },
+        wide,
+      );
+      expect(kpis.activeAlertsSkuCount).toBe(5);
     });
   });
 
@@ -278,7 +293,7 @@ describe('KPI queries (S8) — integration against Neon', () => {
         userId,
         periodYear: 2025,
         periodMonth: 3,
-      });
+      }, DEFAULT_CUTS);
 
       // G5b: majority/mode aggregation (worst-case tiebreaker). Buckets:
       //   SORIANA: A, B, C, D, E, unmapped, F, G + AMAZON: A, B = 10
@@ -312,7 +327,7 @@ describe('KPI queries (S8) — integration against Neon', () => {
         userId,
         periodYear: 2025,
         periodMonth: 3,
-      });
+      }, DEFAULT_CUTS);
       const unmapped = rows.find((r) => r.productName === 'PROD-UNK');
       expect(unmapped?.productId).toBeNull();
     });

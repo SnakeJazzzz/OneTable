@@ -17,6 +17,7 @@
 
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth-helpers';
+import { getThresholdCuts } from '@/lib/thresholds';
 import { getOneTableRows, getDefaultPeriod } from '@/core/kpis/queries';
 
 function parsePeriodParam(raw: string | null, min: number, max: number): number | null {
@@ -48,8 +49,11 @@ export async function GET(req: Request): Promise<Response> {
     periodMonth = def.periodMonth;
   }
 
+  // Per-client alert bands, loaded ONCE per request (not per row).
+  const cuts = await getThresholdCuts(db, clientId);
+
   const [rows, unmappedCount] = await Promise.all([
-    getOneTableRows(db, { clientId, userId, periodYear, periodMonth }),
+    getOneTableRows(db, { clientId, userId, periodYear, periodMonth }, cuts),
     db.unmappedProduct.count({ where: { clientId, resolvedAt: null } }),
   ]);
 

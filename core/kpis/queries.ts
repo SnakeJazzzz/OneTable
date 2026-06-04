@@ -1,5 +1,5 @@
 import type { PrismaClient, Chain } from '@prisma/client';
-import { classifyAlert, type AlertStatus } from '../alerts/classify';
+import { classifyAlert, type AlertStatus, type ThresholdCuts } from '../alerts/classify';
 
 // =====================================================================
 // Types
@@ -84,6 +84,7 @@ export async function getDefaultPeriod(
 export async function getDashboardKpis(
   db: PrismaClient,
   params: PeriodParams,
+  cuts: ThresholdCuts,
 ): Promise<DashboardKpis> {
   const { clientId, userId, periodYear, periodMonth } = params;
   const prevYear = periodMonth === 1 ? periodYear - 1 : periodYear;
@@ -116,7 +117,10 @@ export async function getDashboardKpis(
         AND "periodMonth"= ${prevMonth}
     `,
     // COUNT(DISTINCT productId) naturally excludes unmapped (productId NULL).
-    // daysOfInv computed inline: inv/sales*30, comparing < 14 covers CRITICO ∪ RIESGO.
+    // daysOfInv computed inline: inv/sales*30, comparing < cuts.riesgo covers
+    // CRITICO ∪ RIESGO. cuts.riesgo is interpolated as a BOUND query parameter
+    // via the Prisma.sql tagged template (NOT $queryRawUnsafe) per §4.8 — the
+    // band is per-client config, not a hardcoded 14.
     db.$queryRaw<Array<{ count: bigint }>>`
       SELECT COUNT(DISTINCT "productId")::bigint AS count
       FROM "SelloutData"
@@ -130,7 +134,7 @@ export async function getDashboardKpis(
           OR (
             "salesUnits"     IS NOT NULL AND "salesUnits"     > 0
             AND "inventoryUnits" IS NOT NULL
-            AND ("inventoryUnits"::float8 / "salesUnits") * 30 < 14
+            AND ("inventoryUnits"::float8 / "salesUnits") * 30 < ${cuts.riesgo}
           )
         )
     `,
@@ -261,6 +265,7 @@ export async function getSalesByChainForPeriod(
 export async function getInventorySemaforo(
   db: PrismaClient,
   params: PeriodParams,
+  cuts: ThresholdCuts,
 ): Promise<SkuInventoryStatus[]> {
   const { clientId, userId, periodYear, periodMonth } = params;
 
@@ -314,7 +319,7 @@ export async function getInventorySemaforo(
     const sales = r.sales_units == null ? null : Number(r.sales_units);
     const daysOfInv =
       sales !== null && sales > 0 && inv !== null ? (inv / sales) * 30 : null;
-    const rowAlert = classifyAlert(inv, daysOfInv);
+    const rowAlert = classifyAlert(inv, daysOfInv, cuts);
 
     const key = `${r.product_id ?? r.product_name}|${r.chain}`;
     let bucket = buckets.get(key);
@@ -432,6 +437,7 @@ export type OneTableRow = {
 export async function getOneTableRows(
   db: PrismaClient,
   params: PeriodParams,
+  cuts: ThresholdCuts,
 ): Promise<OneTableRow[]> {
   const { clientId, userId, periodYear, periodMonth } = params;
 
@@ -480,7 +486,7 @@ export async function getOneTableRows(
     const sales = r.sales_units == null ? null : Number(r.sales_units);
     const days =
       sales !== null && sales > 0 && inv !== null ? (inv / sales) * 30 : null;
-    const alert = classifyAlert(inv, days);
+    const alert = classifyAlert(inv, days, cuts);
     return {
       id: r.id,
       chain: r.chain,

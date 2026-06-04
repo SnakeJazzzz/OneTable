@@ -71,6 +71,7 @@ import {
   getTopSkusByChain,
   getDaysOfInventoryBySku,
 } from '../core/kpis/queries';
+import { DEFAULT_CUTS } from '../core/alerts/classify';
 import { main as runSeed, DEMO_USER_EMAIL, DEMO_CLIENT_NAME } from './seed';
 
 const SAMPLES_DIR = resolve(__dirname, '../docs/specs/viks-data/samples');
@@ -227,7 +228,7 @@ async function main(): Promise<void> {
     const baseParams = { clientId: client.id, userId: user.id };
     const periodParams = { ...baseParams, periodYear, periodMonth };
 
-    const kpis = await getDashboardKpis(db, periodParams);
+    const kpis = await getDashboardKpis(db, periodParams, DEFAULT_CUTS);
     console.log(
       `[preflight] getDashboardKpis: salesAmountMxn=${kpis.salesAmountMxn.toFixed(2)} ` +
         `salesUnits=${kpis.salesUnits} variationPct=${kpis.variationPct === null ? 'null' : kpis.variationPct.toFixed(2) + '%'} ` +
@@ -247,7 +248,7 @@ async function main(): Promise<void> {
     );
     if (byChain.length === 0) throw new Error('getSalesByChainForPeriod returned 0 entries.');
 
-    const semaforo = await getInventorySemaforo(db, periodParams);
+    const semaforo = await getInventorySemaforo(db, periodParams, DEFAULT_CUTS);
     console.log(`[preflight] getInventorySemaforo: ${semaforo.length} entries`);
     if (semaforo.length === 0) throw new Error('getInventorySemaforo returned 0 entries.');
 
