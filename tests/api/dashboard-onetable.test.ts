@@ -55,7 +55,7 @@ describe('GET /api/dashboard/onetable', () => {
   it('returns classified rows for the requested period + unmapped count', async () => {
     // Create a mapped Product so the Soriana row has isUnmapped=false.
     const mappedProduct = await db.product.create({
-      data: { clientId, nameStandard: 'Producto Test Standard' },
+      data: { clientId, nameStandard: 'Producto Test Standard', skuCode: 'SKU-ONETABLE-1' },
     });
     await db.selloutData.createMany({
       data: [

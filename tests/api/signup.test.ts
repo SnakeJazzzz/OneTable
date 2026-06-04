@@ -70,6 +70,16 @@ describe('POST /api/auth/signup', () => {
     expect(user!.clients).toHaveLength(1);
     expect(user!.clients[0].name).toBe('Acme Corp');
     expect(user!.clients[0].userId).toBe(user!.id);
+
+    // §4.5 lifecycle: the Client is born with a default ThresholdConfig.
+    const tc = await db.thresholdConfig.findUnique({
+      where: { clientId: user!.clients[0].id },
+    });
+    expect(tc).not.toBeNull();
+    expect(tc!.criticoDays).toBe(7);
+    expect(tc!.riesgoDays).toBe(14);
+    expect(tc!.atencionDays).toBe(21);
+    expect(tc!.excesoDays).toBe(60);
   });
 
   it('returns 409 when email already exists', async () => {
