@@ -1,15 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import { makeCuid } from '../ids';
 import * as XLSX from 'xlsx';
 import type { PrismaClient } from '@prisma/client';
 import { Chain } from '@prisma/client';
-
-// cuid-shaped opaque id, generated in the TS layer (schema has no @default on skuCode).
-// Duplicates the private makeCuid() in core/normalizer/upsert.ts; both stay inline for
-// B1 (no cross-module export to keep this seed-only file's scope unchanged, §10.1).
-// Consolidate into a shared core/ids.ts when B3 adds more production create sites.
-function makeSkuCode(): string {
-  return `c${randomUUID().replace(/-/g, '').slice(0, 24)}`;
-}
 
 export type CatalogImportResult = {
   productsCreated: number;
@@ -88,7 +80,7 @@ export async function importCatalog(
       productId = existing.id;
     } else {
       const created = await db.product.create({
-        data: { clientId: input.clientId, nameStandard, skuCode: makeSkuCode() },
+        data: { clientId: input.clientId, nameStandard, skuCode: makeCuid() },
       });
       stats.productsCreated++;
       productId = created.id;
