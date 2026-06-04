@@ -60,3 +60,6 @@ logs
 
 # Prisma
 prisma/migrations/dev.db*
+
+# Superpowers runtime artifacts (plans under docs/superpowers/plans/ ARE committed)
+.superpowers/

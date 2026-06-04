@@ -114,6 +114,10 @@ Hay un worm activo en npm desde mayo 11, 2026 ("Mini Shai-Hulud", CVE-2026-45321
 
 **Gates** requieren revisión humana visual (UI, layout, dashboard). El usuario abre el navegador y verifica contra el checklist de §7.2.1 del spec. Subagent puede preparar el código pero el usuario aprueba el gate.
 
+### Operaciones destructivas de DB
+
+Operaciones destructivas de DB (`migrate reset`, `drop`) NO requieren consentimiento explícito mientras no exista data real de cliente — el sistema está en construcción. A PARTIR de que VIKS (o cualquier cliente) cargue data real en la beta de Fase 2, todo reset destructivo requiere OK explícito del usuario EN EL MOMENTO, no derivado de la aprobación de un plan. El disparador es el evento (data real cargada), no una fecha.
+
 ---
 
 ## Hooks de seguridad activos (`.claude/hooks/`)
