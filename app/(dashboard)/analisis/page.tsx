@@ -1,12 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CheckCircle2, Trash2, XCircle } from 'lucide-react';
 import type { UploadStatus } from '@prisma/client';
 import { useUploads } from '@/lib/hooks/use-uploads';
 import { useResetData } from '@/lib/hooks/use-reset-data';
+import { useDashboardPeriods } from '@/lib/hooks/use-dashboard-periods';
+import { PeriodSelector } from '@/components/dashboard/period-selector';
+import { OneTable } from '@/components/dashboard/onetable';
 import { UploadZone } from '@/components/analisis/upload-zone';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -35,6 +38,14 @@ export default function AnalisisPage() {
   const { uploads, loading, refetch } = useUploads();
   const [resetOpen, setResetOpen] = useState(false);
   const { reset, loading: resetLoading, error: resetError, clearError } = useResetData();
+  const { periods, defaultPeriod, loading: periodsLoading } = useDashboardPeriods();
+  const [period, setPeriod] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!periodsLoading && defaultPeriod && period === undefined) {
+      setPeriod(defaultPeriod);
+    }
+  }, [periodsLoading, defaultPeriod, period]);
 
   async function handleUploadComplete() {
     // Read the closure value BEFORE refetch so we capture "was this the first
@@ -160,6 +171,21 @@ export default function AnalisisPage() {
             .
           </p>
         )}
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Detalle consolidado</h2>
+          {periods.length > 0 && (
+            <PeriodSelector
+              periods={periods}
+              value={period}
+              onChange={setPeriod}
+              disabled={periodsLoading}
+            />
+          )}
+        </div>
+        <OneTable periodKey={period} />
       </section>
 
       <ConfirmDialog
