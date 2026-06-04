@@ -60,3 +60,4 @@ logs
 
 # Prisma
 prisma/migrations/dev.db*
+.superpowers/
