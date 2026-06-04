@@ -180,13 +180,17 @@ function EditRow({ sku, onSave, onCancel }: EditRowProps) {
     }
     setSaving(true);
     setError(null);
-    // Send explicit null/"" for price fields to allow clearing them
+    // Prices send explicit null to allow clearing (route tri-state: null = clear).
+    // skuCode is omitted unless it actually changed: an empty/unchanged field
+    // leaves the code intact (codes can't be blanked — schema-required), so a
+    // code-less SKU stays editable instead of dead-ending on INVALID_SKU_CODE.
     const payload: UpdateSkuInput = {
       nameStandard: name,
-      skuCode: form.skuCode.trim(),
       purchasePriceBase: form.purchasePriceBase.trim() || null,
       salePriceBase: form.salePriceBase.trim() || null,
     };
+    const code = form.skuCode.trim();
+    if (code && code !== sku.skuCode) payload.skuCode = code;
     const result = await onSave(payload);
     setSaving(false);
     if (!result.ok) {
