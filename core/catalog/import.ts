@@ -4,8 +4,9 @@ import type { PrismaClient } from '@prisma/client';
 import { Chain } from '@prisma/client';
 
 // cuid-shaped opaque id, generated in the TS layer (schema has no @default on skuCode).
-// Inline for B1's single production create site; centralize into a shared helper if
-// B3 adds more production product.create sites (see plan note).
+// Duplicates the private makeCuid() in core/normalizer/upsert.ts; both stay inline for
+// B1 (no cross-module export to keep this seed-only file's scope unchanged, §10.1).
+// Consolidate into a shared core/ids.ts when B3 adds more production create sites.
 function makeSkuCode(): string {
   return `c${randomUUID().replace(/-/g, '').slice(0, 24)}`;
 }
