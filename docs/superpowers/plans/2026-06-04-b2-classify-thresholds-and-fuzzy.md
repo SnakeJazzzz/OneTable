@@ -1131,7 +1131,7 @@ async function calibrateChain(
   const scored: ScoredRow[] = [];
 
   for (const r of parsed.rows) {
-    const portalString = r.portalRawProduct?.trim();
+    const portalString = r.portalRawProduct.trim();
     if (!portalString || seen.has(portalString)) continue;
     seen.add(portalString);
     if (isCodeLike(portalString)) continue; // §5.4: code columns skip fuzzy
@@ -1202,7 +1202,10 @@ main().catch((err) => {
 });
 ```
 
-> **Implementer note:** confirm the parser result field names against `core/parsers/types.ts` before running — this harness assumes `parsed.rows` with a `portalRawProduct` string (the same shape `normalize()` consumes). If the type differs, adjust the field access in `calibrateChain` only; the scoring logic is unaffected. Likewise confirm the catalog chain-column header casing in `catalogo-productos.xlsx` matches `catalogColumn` (the importer in `core/catalog/import.ts` uppercases headers — match that convention).
+> **Implementer note (names verified in-session against real code/data — do NOT re-derive):**
+> - `core/parsers/types.ts`: `ParserResult.rows: ParsedRow[]`, `ParsedRow.portalRawProduct: string` (required). The `parsed.rows` / `r.portalRawProduct` access above is correct as written.
+> - `docs/specs/viks-data/catalogo-productos.xlsx`: sheet `Catalogo_Producto`; standard column `Producto VIKS`; chain headers verbatim `AL SUPER | AMAZON | CHEDRAUI | HEB | LA COMER | SORIANA` (plus non-enabled chains). The three `catalogColumn` values used here (`SORIANA`/`CHEDRAUI`/`AMAZON`) are exact matches — no uppercasing/space-normalization needed.
+> - Reality check: the catalog is sparse (e.g. row "Chilli Lime 100g" has only `AL SUPER` filled). Many SORIANA/AMAZON/CHEDRAUI cells are null — the harness skips empty cells; this is the documented PROVISIONAL/Soriana-thin calibration, not a bug.
 
 - [ ] **Step 2: Run the harness against the real files**
 
@@ -1325,7 +1328,9 @@ Expected: the `ci` check passes (B0 branch protection requires it before merge).
 
 **Not in B2 (correctly deferred):** wiring `suggestMatch` into normalize/upload + `ProductMapping.status` transitions + Portales conflict UI (§8 → B4); adopting the harness's cuts as the live default (human decision, PR review); HEB real-file calibration (B6, externally blocked).
 
-**Placeholder scan:** No TBD/TODO/"implement later". Every code step shows the exact code. The only fill-in is the PR body's observed `tHigh/tLow` line (Task 6 produces those numbers at runtime — they can't be known before executing) and the implementer note in Task 6 to confirm parser field names against `core/parsers/types.ts` (a verify-don't-assume guard, not a missing implementation).
+**Placeholder scan:** No TBD/TODO/"implement later". Every code step shows the exact code. The only runtime fill-in is the PR body's observed `tHigh/tLow` line (Task 6 produces those numbers at runtime — they can't be known before executing). The four harness names Task 6 depends on (`parsed.rows`/`portalRawProduct`, sheet `Catalogo_Producto`, column `Producto VIKS`, chain headers `SORIANA/CHEDRAUI/AMAZON`) were **verified in-session against `core/parsers/types.ts` and `catalogo-productos.xlsx`** and baked into Task 6's implementer note as confirmed facts.
+
+**Fixture arithmetic verified (Task 1 Step 8c):** against the real `tests/kpis/queries.test.ts` 2025-03 fixtures, default `riesgo=14` alerts {A,E,F,G}=4 (matches the existing assertion); `riesgo=30` adds exactly product B (AMAZON row inv=80/sales=100 → daysInv=24, the only SKU with days in (14,30]) → 5. The 4→5 case is empirically sound, not assumed.
 
 **Type/name consistency:** `ThresholdCuts` (`critico/riesgo/atencion/exceso`) consistent across `classify.ts`, `lib/thresholds.ts`, `queries.ts`, and all tests. `DEFAULT_CUTS` used as the explicit 3rd arg in `classify.test.ts` + `queries.test.ts`. `cuts: ThresholdCuts` is the 3rd param on all three threaded queries (`getDashboardKpis`, `getInventorySemaforo`, `getOneTableRows`) and the route calls match. `FuzzyThresholds` (`tHigh/tLow`) consistent across `match.ts` + `match.test.ts` + `calibrate-fuzzy.ts`; `scoreMatch`/`classifyBand`/`suggestMatch`/`CatalogEntry`/`isCodeLike` names consistent between `core/fuzzy/match.ts`, the barrel `index.ts`, and both consumers. The custom-cuts arithmetic is internally consistent: AMAZON `productB` (inv=80, sales=100) → daysInv 24, counted only when `riesgo > 24` (the test uses 30), lifting `activeAlertsSkuCount` 4→5.
 
