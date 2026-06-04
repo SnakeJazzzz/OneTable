@@ -34,12 +34,19 @@ type PriceResult =
   | { kind: 'value'; value: string }
   | { kind: 'invalid' };
 
+// Upper bound for a Decimal(12,2) column (10 integer digits): a value >= 10^10
+// passes the regex but overflows the column, making Prisma throw P2000/P2020 —
+// which the catch block (only P2002) doesn't handle → generic 500. Reject it
+// here so the route returns the graceful 400 INVALID_PRICE instead.
+const DECIMAL_12_2_MAX_EXCLUSIVE = 10_000_000_000; // matches core/parameters/import.ts
+
 function parsePatchPrice(present: boolean, raw: unknown): PriceResult {
   if (!present) return { kind: 'absent' };
   if (raw === null || raw === undefined || raw === '') return { kind: 'clear' };
   const s = String(raw).trim();
   if (s === '') return { kind: 'clear' };
   if (!/^\d+(\.\d+)?$/.test(s)) return { kind: 'invalid' };
+  if (Number(s) >= DECIMAL_12_2_MAX_EXCLUSIVE) return { kind: 'invalid' };
   return { kind: 'value', value: s };
 }
 
