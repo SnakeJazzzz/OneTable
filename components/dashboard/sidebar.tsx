@@ -10,8 +10,8 @@ import {
   ClipboardList,
   LayoutDashboard,
   LogOut,
-  Package,
-  Users,
+  SlidersHorizontal,
+  Store,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -21,8 +21,8 @@ type NavItem = { href: string; label: string; icon: LucideIcon };
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/analisis', label: 'Análisis', icon: BarChart3 },
-  { href: '/clientes', label: 'Clientes', icon: Users },
-  { href: '/catalogo', label: 'Catálogo', icon: Package },
+  { href: '/portales', label: 'Portales', icon: Store },
+  { href: '/parametros', label: 'Parámetros', icon: SlidersHorizontal },
   { href: '/promotoria', label: 'Promotoría', icon: ClipboardList },
 ];
 
