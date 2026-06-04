@@ -217,7 +217,7 @@ function EditRow({ sku, onSave, onCancel }: EditRowProps) {
             aria-label="Código SKU"
           />
           <p className="text-xs text-muted-foreground">
-            El código se edita desde la app, no desde el Excel.
+            El código se edita desde la app, no desde el Excel. Editarlo aquí crea un SKU nuevo.
           </p>
         </div>
       </td>
