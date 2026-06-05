@@ -1,5 +1,5 @@
 import { Prisma, type Chain } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
+import { makeCuid } from '../ids';
 
 /**
  * Row shape consumed by batched SelloutData UPSERT.
@@ -32,15 +32,6 @@ export type SelloutRowInput = {
   inventoryAmountPriceMxn?: number;
   daysOfInventory: number | null;
 };
-
-/**
- * Generate a cuid-shaped id matching the original row-by-row helper.
- * Kept inline (vs `@paralleldrive/cuid2` or similar) to avoid a new dep —
- * supply chain mitigation #6.
- */
-function makeCuid(): string {
-  return `c${randomUUID().replace(/-/g, '').slice(0, 24)}`;
-}
 
 /**
  * Batched UPSERT for SelloutData.

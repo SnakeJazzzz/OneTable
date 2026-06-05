@@ -4,8 +4,8 @@ import { NextResponse } from 'next/server';
 const PROTECTED_PREFIXES = [
   '/dashboard',
   '/analisis',
-  '/clientes',
-  '/catalogo',
+  '/portales',
+  '/parametros',
   '/promotoria',
 ];
 

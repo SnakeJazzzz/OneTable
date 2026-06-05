@@ -204,7 +204,7 @@ export function OneTable({ periodKey }: { periodKey: string | undefined }) {
       <Card className="p-5 space-y-4">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Tabla consolidada</h2>
+            <h3 className="text-lg font-semibold text-foreground">Tabla consolidada</h3>
             <p className="text-xs text-muted-foreground">
               SKU × tienda × alerta para el período activo.
             </p>

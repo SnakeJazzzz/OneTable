@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { getThresholdCuts } from '@/lib/thresholds';
+import { getThresholdCuts, validateThresholdCuts } from '@/lib/thresholds';
 import { DEFAULT_CUTS } from '@/core/alerts/classify';
 
 const db = new PrismaClient();
@@ -43,5 +43,38 @@ describe('getThresholdCuts', () => {
   it('falls back to DEFAULT_CUTS when no ThresholdConfig exists', async () => {
     const cuts = await getThresholdCuts(db, noCfgClientId);
     expect(cuts).toEqual(DEFAULT_CUTS);
+  });
+});
+
+describe('validateThresholdCuts', () => {
+  it('accepts a strictly increasing positive-integer set', () => {
+    expect(validateThresholdCuts({ critico: 7, riesgo: 14, atencion: 21, exceso: 60 })).toEqual({
+      ok: true,
+    });
+  });
+
+  it('rejects equal adjacent cuts (overlap)', () => {
+    const r = validateThresholdCuts({ critico: 7, riesgo: 7, atencion: 21, exceso: 60 });
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects descending cuts', () => {
+    const r = validateThresholdCuts({ critico: 60, riesgo: 21, atencion: 14, exceso: 7 });
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects a zero cut', () => {
+    const r = validateThresholdCuts({ critico: 0, riesgo: 14, atencion: 21, exceso: 60 });
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects a negative cut', () => {
+    const r = validateThresholdCuts({ critico: -1, riesgo: 14, atencion: 21, exceso: 60 });
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects a non-integer cut', () => {
+    const r = validateThresholdCuts({ critico: 7.5, riesgo: 14, atencion: 21, exceso: 60 });
+    expect(r.ok).toBe(false);
   });
 });
