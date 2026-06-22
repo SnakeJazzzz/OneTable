@@ -43,6 +43,8 @@ import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
 import { getParser } from '@/core/parsers/registry';
 import { normalize } from '@/core/normalizer';
+import { buildMappingLookup } from '@/core/normalizer/lookup';
+import type { MappingLookup } from '@/core/normalizer/types';
 
 // =====================================================================
 // File detection
@@ -128,18 +130,15 @@ export async function POST(req: Request): Promise<Response> {
     return errorResponse('NO_FILES', 'No files in request (use field name "files")', 400);
   }
 
-  // Pre-resolve the mapping lookup once. The set of chains touched depends on
-  // the files in this request; over-fetching all chain mappings for this
-  // client is cheap (<100 rows in F1) and avoids re-querying per file.
+  // Pre-resolve the mapping lookup once (§8.3 union — reads CONFLICTED state).
+  // The set of chains touched depends on the files in this request; over-
+  // fetching all chain mappings for this client is cheap (<100 rows in F1) and
+  // avoids re-querying per file.
   const mappings = await db.productMapping.findMany({
     where: { clientId },
-    select: { chain: true, portalString: true, productId: true },
+    select: { chain: true, portalString: true, productId: true, status: true },
   });
-  const lookupMap = new Map<string, string>(
-    mappings.map((m) => [`${m.chain}:${m.portalString}`, m.productId]),
-  );
-  const mappingLookup = (chain: Chain, portalString: string): string | null =>
-    lookupMap.get(`${chain}:${portalString}`) ?? null;
+  const mappingLookup = buildMappingLookup(mappings);
 
   // Process files sequentially. See file-level comment for rationale.
   const perFile: PerFile[] = [];
@@ -172,7 +171,7 @@ async function processOneFile(
   ctx: {
     clientId: string;
     userId: string;
-    mappingLookup: (chain: Chain, portalString: string) => string | null;
+    mappingLookup: MappingLookup;
   },
 ): Promise<PerFile> {
   const detected = detectUpload(file.name);

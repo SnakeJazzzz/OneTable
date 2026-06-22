@@ -97,7 +97,7 @@ describe('normalize() batched UPSERT (H2)', () => {
 
     const t0 = Date.now();
     const stats = await normalize(
-      { clientId, userId, uploadId: upload.id, parserResult: parsed, mappingLookup: () => null },
+      { clientId, userId, uploadId: upload.id, parserResult: parsed, mappingLookup: () => ({ kind: 'unmapped' }) },
       db,
     );
     const elapsed = Date.now() - t0;
@@ -132,7 +132,7 @@ describe('normalize() batched UPSERT (H2)', () => {
       });
       const parsed = syntheticParserResult(rowCount, `b${rowCount}`);
       const stats = await normalize(
-        { clientId, userId, uploadId: upload.id, parserResult: parsed, mappingLookup: () => null },
+        { clientId, userId, uploadId: upload.id, parserResult: parsed, mappingLookup: () => ({ kind: 'unmapped' }) },
         db,
       );
       expect(stats.rowsTotal).toBe(rowCount);
@@ -211,7 +211,10 @@ describe('normalize() batched UPSERT (H2)', () => {
         userId,
         uploadId: upload.id,
         parserResult: parsed,
-        mappingLookup: (chain, portalString) => mappingMap.get(`${chain}:${portalString}`) ?? null,
+        mappingLookup: (chain, portalString) => {
+          const productId = mappingMap.get(`${chain}:${portalString}`);
+          return productId ? { kind: 'mapped', productId } : { kind: 'unmapped' };
+        },
       },
       probe,
     );
@@ -303,11 +306,11 @@ describe('normalize() batched UPSERT (H2)', () => {
     };
 
     await normalize(
-      { clientId, userId, uploadId: u1.id, parserResult: ventasParsed, mappingLookup: () => null },
+      { clientId, userId, uploadId: u1.id, parserResult: ventasParsed, mappingLookup: () => ({ kind: 'unmapped' }) },
       db,
     );
     const stats2 = await normalize(
-      { clientId, userId, uploadId: u2.id, parserResult: invParsed, mappingLookup: () => null },
+      { clientId, userId, uploadId: u2.id, parserResult: invParsed, mappingLookup: () => ({ kind: 'unmapped' }) },
       db,
     );
 
@@ -353,14 +356,14 @@ describe('normalize() batched UPSERT (H2)', () => {
     const parsed = syntheticParserResult(1500, 'idem');
 
     const stats1 = await normalize(
-      { clientId, userId, uploadId: u1.id, parserResult: parsed, mappingLookup: () => null },
+      { clientId, userId, uploadId: u1.id, parserResult: parsed, mappingLookup: () => ({ kind: 'unmapped' }) },
       db,
     );
     expect(stats1.rowsInserted).toBe(1500);
     expect(stats1.rowsUpdated).toBe(0);
 
     const stats2 = await normalize(
-      { clientId, userId, uploadId: u2.id, parserResult: parsed, mappingLookup: () => null },
+      { clientId, userId, uploadId: u2.id, parserResult: parsed, mappingLookup: () => ({ kind: 'unmapped' }) },
       db,
     );
     expect(stats2.rowsInserted).toBe(0);

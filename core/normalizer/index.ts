@@ -43,7 +43,9 @@ const BATCH_SIZE = 500;
  *      Neon latency spikes.
  *
  * Mapping resolution: `mappingLookup` is a JS closure provided by the caller
- * (see `scripts/preflight.ts` — `lookup = new Map(...).get(...) ?? null`).
+ * (built via `buildMappingLookup(mappings)` in core/normalizer/lookup.ts — see
+ * the upload route and scripts/preflight.ts). Returns the §8.3 union, so
+ * CONFLICTED state reads as `conflict` (productId NULL) instead of last-wins.
  * Pre-resolved in JS — ZERO DB round-trips per row for mapping. Verified by
  * `tests/normalizer/batch.test.ts > resolves mappings without per-row DB hits`.
  */
@@ -57,6 +59,7 @@ export async function normalize(
     rowsInserted: 0,
     rowsUpdated: 0,
     rowsUnmapped: 0,
+    rowsConflicted: 0,
     newUnmappedProducts: 0,
     warnings: parserResult.warnings.map(w => `r${w.rowIndex}: ${w.message}`),
   };
@@ -67,12 +70,17 @@ export async function normalize(
   const unmappedAgg = new Map<string, UnmappedAggregate>();
 
   for (const row of parserResult.rows) {
-    const productId = mappingLookup(parserResult.metadata.chain, row.portalRawProduct);
+    const chain = parserResult.metadata.chain;
+    const result = mappingLookup(chain, row.portalRawProduct);
+    // mapped → attribute; unmapped/conflict → productId NULL (excluded from
+    // SKU-level KPIs, §8.4). Only genuine unmapped goes to the queue; conflict
+    // lives in ProductMapping(status=CONFLICTED), not UnmappedProduct (§8.3).
+    const productId = result.kind === 'mapped' ? result.productId : null;
     sellouts.push({
       clientId,
       userId,
       uploadId,
-      chain: parserResult.metadata.chain,
+      chain,
       productId,
       periodYear: row.periodYear,
       periodMonth: row.periodMonth,
@@ -92,9 +100,8 @@ export async function normalize(
       daysOfInventory: row.daysOfInventory ?? null,
     });
 
-    if (productId === null) {
+    if (result.kind === 'unmapped') {
       stats.rowsUnmapped++;
-      const chain = parserResult.metadata.chain;
       const key = `${chain}|${row.portalRawProduct}`;
       const existing = unmappedAgg.get(key);
       if (existing) {
@@ -107,6 +114,8 @@ export async function normalize(
           occurrenceCount: 1,
         });
       }
+    } else if (result.kind === 'conflict') {
+      stats.rowsConflicted++;
     }
   }
 

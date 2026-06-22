@@ -58,7 +58,7 @@ describe('normalize() against real Soriana sample', () => {
         userId,
         uploadId: upload.id,
         parserResult: parsed,
-        mappingLookup: () => null,
+        mappingLookup: () => ({ kind: 'unmapped' }),
       },
       db,
     );
@@ -96,11 +96,11 @@ describe('normalize() against real Soriana sample', () => {
       originalFilename: 'soriana-sample.xlsx',
     });
     await normalize(
-      { clientId, userId, uploadId: upload.id, parserResult: parsed, mappingLookup: () => null },
+      { clientId, userId, uploadId: upload.id, parserResult: parsed, mappingLookup: () => ({ kind: 'unmapped' }) },
       db,
     );
     const stats2 = await normalize(
-      { clientId, userId, uploadId: upload.id, parserResult: parsed, mappingLookup: () => null },
+      { clientId, userId, uploadId: upload.id, parserResult: parsed, mappingLookup: () => ({ kind: 'unmapped' }) },
       db,
     );
 
@@ -181,11 +181,11 @@ describe('normalize() against real Soriana sample', () => {
     };
 
     await normalize(
-      { clientId, userId, uploadId: u1.id, parserResult: ventas, mappingLookup: () => null },
+      { clientId, userId, uploadId: u1.id, parserResult: ventas, mappingLookup: () => ({ kind: 'unmapped' }) },
       db,
     );
     const stats2 = await normalize(
-      { clientId, userId, uploadId: u2.id, parserResult: inventario, mappingLookup: () => null },
+      { clientId, userId, uploadId: u2.id, parserResult: inventario, mappingLookup: () => ({ kind: 'unmapped' }) },
       db,
     );
 
