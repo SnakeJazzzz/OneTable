@@ -47,6 +47,18 @@ export async function GET(req: Request): Promise<Response> {
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId, userId } = sessionOrError;
 
+  // Global, period-independent counts for the Dashboard banners (§8.4). Hoisted
+  // above the noData check so the banners show even in an empty/onboarding period.
+  const [unmappedCount, conflictRows] = await Promise.all([
+    db.unmappedProduct.count({ where: { clientId, resolvedAt: null } }),
+    db.productMapping.findMany({
+      where: { clientId, status: 'CONFLICTED' },
+      select: { chain: true, portalString: true },
+      distinct: ['chain', 'portalString'], // FIX-3 — cross-chain
+    }),
+  ]);
+  const conflictCount = conflictRows.length;
+
   const url = new URL(req.url);
   let periodYear = parsePeriodParam(url.searchParams.get('periodYear'), 2000, 2100);
   let periodMonth = parsePeriodParam(url.searchParams.get('periodMonth'), 1, 12);
@@ -73,6 +85,8 @@ export async function GET(req: Request): Promise<Response> {
         semaforo: [],
         topSkus: [],
         daysInv: [],
+        unmappedCount,
+        conflictCount,
       });
     }
     periodYear = defaultPeriod.periodYear;
@@ -104,5 +118,7 @@ export async function GET(req: Request): Promise<Response> {
     semaforo,
     topSkus,
     daysInv,
+    unmappedCount,
+    conflictCount,
   });
 }

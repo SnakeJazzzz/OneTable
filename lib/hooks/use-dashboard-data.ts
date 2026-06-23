@@ -57,6 +57,9 @@ export interface DashboardData {
 
 interface DashboardApiResponse extends DashboardData {
   noData: boolean;
+  /** Global, period-independent counts for the onboarding banners (§8.4). */
+  unmappedCount: number;
+  conflictCount: number;
 }
 
 export interface UseDashboardDataResult {
@@ -67,6 +70,13 @@ export interface UseDashboardDataResult {
   refetching: boolean;
   error: string | null;
   isEmpty: boolean;
+  /**
+   * Global, period-independent counts. Surfaced at the TOP LEVEL (not inside
+   * the nullable `data`) so the banners render even in the empty/onboarding
+   * state where `data` is null. Default to 0 before data arrives.
+   */
+  unmappedCount: number;
+  conflictCount: number;
 }
 
 function buildPeriodQuery(periodKey: string | undefined): string {
@@ -83,6 +93,8 @@ export function useDashboardData(periodKey?: string): UseDashboardDataResult {
   const [isFetching, setIsFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEmpty, setIsEmpty] = useState(false);
+  const [unmappedCount, setUnmappedCount] = useState(0);
+  const [conflictCount, setConflictCount] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -100,6 +112,10 @@ export function useDashboardData(periodKey?: string): UseDashboardDataResult {
       })
       .then((body) => {
         if (controller.signal.aborted) return;
+        // Global counts are present in BOTH the noData and main responses
+        // (period-independent), so surface them regardless of the branch.
+        setUnmappedCount(body.unmappedCount ?? 0);
+        setConflictCount(body.conflictCount ?? 0);
         if (body.noData) {
           setIsEmpty(true);
           setData(null);
@@ -137,5 +153,5 @@ export function useDashboardData(periodKey?: string): UseDashboardDataResult {
   const loading = isFetching && data === null && !isEmpty;
   const refetching = isFetching && !loading;
 
-  return { data, loading, refetching, error, isEmpty };
+  return { data, loading, refetching, error, isEmpty, unmappedCount, conflictCount };
 }
