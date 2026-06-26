@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractWeightGrams, weightPenalty } from '@/core/fuzzy/weight';
+import { extractWeightGrams, weightPenalty, canonicalizeWeights } from '@/core/fuzzy/weight';
 
 describe('extractWeightGrams', () => {
   it.each([
@@ -29,5 +29,17 @@ describe('weightPenalty', () => {
   it('demotes cross-weight matches proportionally', () => {
     // |86-20|/86 = 0.767 → penalty 0.233
     expect(weightPenalty('lime 86g', 'lime 20g')).toBeCloseTo(0.2326, 3);
+  });
+});
+
+describe('canonicalizeWeights', () => {
+  it.each([
+    ['CARNE SECA 86 GR', 'CARNE SECA 86g'],
+    ['Chilli 100 GRAMOS', 'Chilli 100g'],
+    ['Original 28GR', 'Original 28g'],
+    ['Mango 20 g', 'Mango 20g'],
+    ['No weight', 'No weight'],
+  ])('%s → %s', (input, expected) => {
+    expect(canonicalizeWeights(input)).toBe(expected);
   });
 });

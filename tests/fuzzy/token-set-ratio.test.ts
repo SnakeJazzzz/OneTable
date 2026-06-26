@@ -13,6 +13,11 @@ describe('tokenize', () => {
   it('keeps alphanumeric weight tokens like 86g', () => {
     expect(tokenize('Chilli Lime 86g').has('86g')).toBe(true);
   });
+
+  it('canonicalizes weight expressions so "86 GR" and "86g" share a token (§5.3/D4)', () => {
+    expect(tokenize('Carne 86 GR').has('86g')).toBe(true);
+    expect(tokenize('Carne 86g').has('86g')).toBe(true);
+  });
 });
 
 describe('tokenSetRatio', () => {
