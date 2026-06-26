@@ -1,9 +1,11 @@
 /**
  * POST /api/data/upload — multipart upload of 1+ portal xlsx files.
  *
- * Body: multipart/form-data with one or more `files` parts. Each file's chain
- * + fileType is inferred from its filename (no manual selector in S12 — the
- * frontend can pre-validate names; the server is the source of truth).
+ * Body: multipart/form-data with one or more `files` parts. Optional
+ * top-level `chain` and `fileType` form fields set the chain/fileType
+ * explicitly (Portales cards know their chain, §3.2.4). When both explicit
+ * fields are absent, chain+fileType fall back to filename detection
+ * (back-compat for callers that don't send explicit fields).
  *
  * For each file we:
  *   1. Compute sha256 hash + size.
@@ -30,10 +32,15 @@
  * Auth: required. 401 with `{ error: { code: 'UNAUTHORIZED', message } }` if
  * no session. clientId + userId taken from the JWT.
  *
- * File detection: by lowercased filename. Unmatched filenames are returned
- * in the per-file response with `{ error: 'unknown file type' }` — we DON'T
- * 400 the whole request unless every file was unmatched (otherwise a
- * 4-file upload with 1 typo would lose 3 successful imports).
+ * Chain/fileType resolution: explicit `chain`+`fileType` form fields win;
+ * filename detection is the fallback. If explicit fields are present but
+ * fail validation (unknown chain, invalid fileType, or only one of the two
+ * provided), a per-file error is returned — we do NOT silently fall back to
+ * filename detection (that would mask bad input). Unmatched filenames or
+ * invalid explicit values surface in the per-file response with
+ * `{ error: ... }` — we DON'T 400 the whole request unless every file
+ * failed (otherwise a 4-file upload with 1 typo would lose 3 successful
+ * imports).
  */
 
 import { createHash } from 'node:crypto';
@@ -45,6 +52,7 @@ import { getParser } from '@/core/parsers/registry';
 import { normalize } from '@/core/normalizer';
 import { buildMappingLookup } from '@/core/normalizer/lookup';
 import type { MappingLookup } from '@/core/normalizer/types';
+import { parseChain, parseFileType } from '@/lib/portales/chains';
 
 // =====================================================================
 // File detection
@@ -130,6 +138,34 @@ export async function POST(req: Request): Promise<Response> {
     return errorResponse('NO_FILES', 'No files in request (use field name "files")', 400);
   }
 
+  // Read optional explicit chain/fileType at request level (§3.2.4).
+  // Explicit fields win over filename detection. If exactly one field is
+  // provided, or if either field fails enum validation, the error is surfaced
+  // per-file — NOT silently fallen back to filename detection.
+  const rawChain = form.get('chain');
+  const rawFileType = form.get('fileType');
+
+  let explicit: { chain: Chain; fileType: FileType } | null = null;
+  let explicitError: string | null = null;
+
+  if (rawChain !== null || rawFileType !== null) {
+    // At least one explicit field was sent → require both and validate.
+    const chainStr = rawChain instanceof File ? null : rawChain;
+    const fileTypeStr = rawFileType instanceof File ? null : rawFileType;
+    const parsedChain = parseChain(chainStr);
+    const parsedFileType = parseFileType(fileTypeStr);
+    if (parsedChain !== null && parsedFileType !== null) {
+      explicit = { chain: parsedChain, fileType: parsedFileType };
+    } else {
+      const issues: string[] = [];
+      if (chainStr === null) issues.push('chain field missing');
+      else if (parsedChain === null) issues.push(`unknown chain: "${chainStr}"`);
+      if (fileTypeStr === null) issues.push('fileType field missing');
+      else if (parsedFileType === null) issues.push(`unknown fileType: "${fileTypeStr}"`);
+      explicitError = `invalid explicit upload metadata: ${issues.join('; ')}`;
+    }
+  }
+
   // Pre-resolve the mapping lookup once (§8.3 union — reads CONFLICTED state).
   // The set of chains touched depends on the files in this request; over-
   // fetching all chain mappings for this client is cheap (<100 rows in F1) and
@@ -143,7 +179,7 @@ export async function POST(req: Request): Promise<Response> {
   // Process files sequentially. See file-level comment for rationale.
   const perFile: PerFile[] = [];
   for (const file of fileEntries) {
-    perFile.push(await processOneFile(file, { clientId, userId, mappingLookup }));
+    perFile.push(await processOneFile(file, { clientId, userId, mappingLookup, explicit, explicitError }));
   }
 
   // If every file failed detection, surface a 400 — that's a request-level
@@ -172,10 +208,22 @@ async function processOneFile(
     clientId: string;
     userId: string;
     mappingLookup: MappingLookup;
+    // Explicit chain/fileType from the request (wins over filename detection).
+    // null → use filename detection (back-compat). explicitError is set when
+    // the caller sent explicit fields that failed enum validation.
+    explicit: { chain: Chain; fileType: FileType } | null;
+    explicitError: string | null;
   },
 ): Promise<PerFile> {
-  const detected = detectUpload(file.name);
-  if (!detected) {
+  // If explicit fields were sent but failed validation, surface the error.
+  // Do NOT silently fall back to filename detection — that would mask bad input.
+  if (ctx.explicitError !== null) {
+    return { filename: file.name, error: ctx.explicitError };
+  }
+
+  // Explicit wins; filename detection is the back-compat fallback.
+  const resolved = ctx.explicit ?? detectUpload(file.name);
+  if (!resolved) {
     return {
       filename: file.name,
       error:
@@ -183,11 +231,11 @@ async function processOneFile(
     };
   }
 
-  const parser = getParser(detected.chain, detected.fileType);
+  const parser = getParser(resolved.chain, resolved.fileType);
   if (!parser) {
     return {
       filename: file.name,
-      error: `no parser registered for ${detected.chain}/${detected.fileType}`,
+      error: `no parser registered for ${resolved.chain}/${resolved.fileType}`,
     };
   }
 
@@ -200,8 +248,8 @@ async function processOneFile(
     data: {
       clientId: ctx.clientId,
       userId: ctx.userId,
-      chain: detected.chain,
-      fileType: detected.fileType,
+      chain: resolved.chain,
+      fileType: resolved.fileType,
       originalFilename: file.name,
       fileHash,
       fileSizeBytes: buffer.length,
@@ -212,7 +260,7 @@ async function processOneFile(
   try {
     const parsed = await parser.parse({
       buffer,
-      fileType: detected.fileType,
+      fileType: resolved.fileType,
       originalFilename: file.name,
     });
 
@@ -241,8 +289,8 @@ async function processOneFile(
 
     return {
       filename: file.name,
-      chain: detected.chain,
-      fileType: detected.fileType,
+      chain: resolved.chain,
+      fileType: resolved.fileType,
       uploadId: uploadRow.id,
       rowsTotal: stats.rowsTotal,
       rowsInserted: stats.rowsInserted,
