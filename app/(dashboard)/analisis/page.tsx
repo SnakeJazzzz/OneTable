@@ -10,7 +10,6 @@ import { useResetData } from '@/lib/hooks/use-reset-data';
 import { useDashboardPeriods } from '@/lib/hooks/use-dashboard-periods';
 import { PeriodSelector } from '@/components/dashboard/period-selector';
 import { OneTable } from '@/components/dashboard/onetable';
-import { UploadZone } from '@/components/analisis/upload-zone';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -47,18 +46,6 @@ export default function AnalisisPage() {
     }
   }, [periodsLoading, defaultPeriod, period]);
 
-  async function handleUploadComplete() {
-    // Read the closure value BEFORE refetch so we capture "was this the first
-    // upload?" against the pre-refresh state. The hook will update `uploads`
-    // asynchronously after refetch resolves; checking before is the correct
-    // signal. No ref/state needed.
-    const wasFirstUpload = uploads.length === 0;
-    await refetch();
-    if (wasFirstUpload) {
-      setTimeout(() => router.push('/dashboard'), 1500);
-    }
-  }
-
   function openResetDialog() {
     clearError();
     setResetOpen(true);
@@ -81,8 +68,8 @@ export default function AnalisisPage() {
           <h1 className="text-3xl font-bold text-foreground">Análisis</h1>
           <p className="text-muted-foreground">
             {uploads.length === 0
-              ? 'Subí tu primer archivo para empezar a ver tu dashboard consolidado.'
-              : 'Subí los archivos de tus portales para consolidar ventas e inventario.'}
+              ? <>Todavía no hay uploads. Subí tus archivos desde{' '}<Link href="/portales" className="text-primary hover:underline">Portales</Link>.</>
+              : <>Historial de uploads. Para subir nuevos archivos, ir a{' '}<Link href="/portales" className="text-primary hover:underline">Portales</Link>.</>}
           </p>
         </div>
         {uploads.length > 0 && (
@@ -97,8 +84,6 @@ export default function AnalisisPage() {
           </Button>
         )}
       </header>
-
-      <UploadZone onUploadComplete={handleUploadComplete} />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold text-foreground">Uploads recientes</h2>
