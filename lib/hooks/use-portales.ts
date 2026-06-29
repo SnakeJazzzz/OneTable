@@ -89,19 +89,31 @@ export function useChainCounts(chain: Chain): UseChainCountsResult {
 }
 
 // ---- Chain Mappings ----
-// Consumed in Task 10/11 (mapping/conflict UI).
+// Consumed in Task 10 (mapping UI).
+
+export type MappingStatus = 'CONFIRMED' | 'PENDING_REVIEW' | 'CONFLICTED';
+
+export interface MappingRow {
+  id: string;
+  portalString: string;
+  productId: string;
+  status: MappingStatus;
+  product: { nameStandard: string; skuCode: string };
+}
+
+export interface ChainMappingsData {
+  mappings: MappingRow[];
+}
 
 export interface UseChainMappingsResult {
-  // TODO Task 10/11: replace unknown with the real row interface before consuming.
-  data: unknown;
+  data: ChainMappingsData | null;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
 }
 
 export function useChainMappings(chain: Chain): UseChainMappingsResult {
-  // Consumed in Task 10/11 (mapping/conflict UI).
-  const [data, setData] = useState<unknown>(null);
+  const [data, setData] = useState<ChainMappingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,7 +122,7 @@ export function useChainMappings(chain: Chain): UseChainMappingsResult {
     try {
       const res = await fetch(`/api/portales/mappings?chain=${chain}`, { credentials: 'include' });
       if (!res.ok) throw new Error(`Mappings request failed (${res.status})`);
-      setData(await res.json());
+      setData((await res.json()) as ChainMappingsData);
     } catch (err) {
       console.error('[useChainMappings] fetch error:', err);
       setError(err instanceof Error ? err.message : 'Error al cargar mappings');
@@ -127,19 +139,34 @@ export function useChainMappings(chain: Chain): UseChainMappingsResult {
 }
 
 // ---- Chain Suggestions ----
-// Consumed in Task 10/11 (mapping/conflict UI).
+// Consumed in Task 10 (mapping UI).
+
+export type SuggestionBand = 'high' | 'medium' | 'low';
+
+export interface SuggestionRow {
+  portalString: string;
+  suggestion: {
+    productId: string | null;
+    nameStandard: string | null;
+    score: number;
+    band: SuggestionBand;
+  };
+}
+
+export interface ChainSuggestionsData {
+  codeSkip: boolean;
+  suggestions: SuggestionRow[];
+}
 
 export interface UseChainSuggestionsResult {
-  // TODO Task 10/11: replace unknown with the real row interface before consuming.
-  data: unknown;
+  data: ChainSuggestionsData | null;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
 }
 
 export function useChainSuggestions(chain: Chain): UseChainSuggestionsResult {
-  // Consumed in Task 10/11 (mapping/conflict UI).
-  const [data, setData] = useState<unknown>(null);
+  const [data, setData] = useState<ChainSuggestionsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -150,7 +177,7 @@ export function useChainSuggestions(chain: Chain): UseChainSuggestionsResult {
         credentials: 'include',
       });
       if (!res.ok) throw new Error(`Suggestions request failed (${res.status})`);
-      setData(await res.json());
+      setData((await res.json()) as ChainSuggestionsData);
     } catch (err) {
       console.error('[useChainSuggestions] fetch error:', err);
       setError(err instanceof Error ? err.message : 'Error al cargar sugerencias');

@@ -1,10 +1,12 @@
 'use client';
 
+import { useCallback, useState } from 'react';
 import type { Chain } from '@prisma/client';
 import { Card } from '@/components/ui/card';
 import { useChainCounts } from '@/lib/hooks/use-portales';
 import { CredentialsForm } from './credentials-form';
 import { ChainUpload } from './chain-upload';
+import { MappingSection } from './mapping-section';
 
 interface ChainCardProps {
   chain: Chain;
@@ -20,6 +22,15 @@ function displayName(chain: Chain): string {
 export function ChainCard({ chain, initialUsername, credLoading }: ChainCardProps) {
   // Per-card counts are correctly per-card — still fetched here
   const { counts, loading: countsLoading, refetch: refetchCounts } = useChainCounts(chain);
+
+  // A successful upload mutates the unmapped queue, so it must refresh BOTH the
+  // per-card counts AND the sibling MappingSection (which owns its own queries).
+  // We bump a key the section watches rather than lifting its hooks up here.
+  const [mappingRefreshKey, setMappingRefreshKey] = useState(0);
+  const handleUploaded = useCallback(() => {
+    void refetchCounts();
+    setMappingRefreshKey((k) => k + 1);
+  }, [refetchCounts]);
 
   const unmappedCount = counts?.unmappedCount ?? 0;
   const pendingReviewCount = counts?.pendingReviewCount ?? 0;
@@ -70,10 +81,15 @@ export function ChainCard({ chain, initialUsername, credLoading }: ChainCardProp
         <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Carga de archivos
         </h3>
-        <ChainUpload chain={chain} onUploaded={refetchCounts} />
+        <ChainUpload chain={chain} onUploaded={handleUploaded} />
       </section>
 
-      {/* TODO Task 10: mapping section */}
+      {/* Task 10: mapping section — mounted unconditionally so Vista B (multi-value,
+          §3.2.1) stays reachable in the stable, fully-mapped state. MappingSection
+          owns its "Mapeo" heading and collapses to null when there is nothing to
+          map AND nothing mapped. Vista B no longer hides behind the per-card counts. */}
+      <MappingSection chain={chain} onMappingChange={refetchCounts} refreshKey={mappingRefreshKey} />
+
       {/* TODO Task 11: conflict section */}
     </Card>
   );
