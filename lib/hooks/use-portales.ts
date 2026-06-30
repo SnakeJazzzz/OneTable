@@ -194,19 +194,32 @@ export function useChainSuggestions(chain: Chain): UseChainSuggestionsResult {
 }
 
 // ---- Chain Conflicts ----
-// Consumed in Task 10/11 (mapping/conflict UI).
+// Consumed in Task 11 (conflict resolution UI).
+
+export interface ConflictCandidate {
+  productId: string;
+  nameStandard: string;
+  skuCode: string;
+}
+
+export interface ChainConflict {
+  portalString: string;
+  candidates: ConflictCandidate[];
+}
+
+export interface ChainConflictsResponse {
+  conflicts: ChainConflict[];
+}
 
 export interface UseChainConflictsResult {
-  // TODO Task 10/11: replace unknown with the real row interface before consuming.
-  data: unknown;
+  data: ChainConflictsResponse | null;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
 }
 
 export function useChainConflicts(chain: Chain): UseChainConflictsResult {
-  // Consumed in Task 10/11 (mapping/conflict UI).
-  const [data, setData] = useState<unknown>(null);
+  const [data, setData] = useState<ChainConflictsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -215,7 +228,7 @@ export function useChainConflicts(chain: Chain): UseChainConflictsResult {
     try {
       const res = await fetch(`/api/portales/conflicts?chain=${chain}`, { credentials: 'include' });
       if (!res.ok) throw new Error(`Conflicts request failed (${res.status})`);
-      setData(await res.json());
+      setData((await res.json()) as ChainConflictsResponse);
     } catch (err) {
       console.error('[useChainConflicts] fetch error:', err);
       setError(err instanceof Error ? err.message : 'Error al cargar conflictos');

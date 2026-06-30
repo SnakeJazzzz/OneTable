@@ -8,6 +8,8 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { PeriodSelector } from '@/components/dashboard/period-selector';
 import { DashboardSkeleton } from '@/components/dashboard/dashboard-skeleton';
 import { DashboardEmpty } from '@/components/dashboard/dashboard-empty';
+import { UnmappedBanner } from '@/components/dashboard/unmapped-banner';
+import { ConflictBanner } from '@/components/dashboard/conflict-banner';
 import {
   ByChainChart,
   DaysInvDotPlot,
@@ -53,7 +55,8 @@ export default function DashboardPage() {
     }
   }, [periodsLoading, defaultPeriod, period]);
 
-  const { data, loading, refetching, error, isEmpty } = useDashboardData(period);
+  const { data, loading, refetching, error, isEmpty, unmappedCount, conflictCount } =
+    useDashboardData(period);
 
   if (periodsLoading || loading) {
     return <DashboardSkeleton />;
@@ -73,7 +76,20 @@ export default function DashboardPage() {
   }
 
   if (isEmpty || !data) {
-    return <DashboardEmpty />;
+    return (
+      <>
+        {/* Counts are global/period-independent — banners surface even when the
+            active period has no data. Gated so an all-clear state shows no gap.
+            px-8 matches DashboardEmpty's own p-8 horizontal padding. */}
+        {(unmappedCount > 0 || conflictCount > 0) && (
+          <div className="px-8 pt-8 space-y-3">
+            <UnmappedBanner count={unmappedCount} />
+            <ConflictBanner count={conflictCount} />
+          </div>
+        )}
+        <DashboardEmpty />
+      </>
+    );
   }
 
   const variation = formatVariation(data.kpis.variationPct);
@@ -96,6 +112,10 @@ export default function DashboardPage() {
           />
         )}
       </header>
+
+      {/* Onboarding banners — global counts, self-hide at 0 (§8.4). */}
+      <UnmappedBanner count={unmappedCount} />
+      <ConflictBanner count={conflictCount} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard

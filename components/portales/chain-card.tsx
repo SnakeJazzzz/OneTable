@@ -7,6 +7,7 @@ import { useChainCounts } from '@/lib/hooks/use-portales';
 import { CredentialsForm } from './credentials-form';
 import { ChainUpload } from './chain-upload';
 import { MappingSection } from './mapping-section';
+import { ConflictSection } from './conflict-section';
 
 interface ChainCardProps {
   chain: Chain;
@@ -23,13 +24,16 @@ export function ChainCard({ chain, initialUsername, credLoading }: ChainCardProp
   // Per-card counts are correctly per-card — still fetched here
   const { counts, loading: countsLoading, refetch: refetchCounts } = useChainCounts(chain);
 
-  // A successful upload mutates the unmapped queue, so it must refresh BOTH the
-  // per-card counts AND the sibling MappingSection (which owns its own queries).
-  // We bump a key the section watches rather than lifting its hooks up here.
-  const [mappingRefreshKey, setMappingRefreshKey] = useState(0);
-  const handleUploaded = useCallback(() => {
+  // Any mapping/conflict mutation in ANY child (upload, MappingSection,
+  // ConflictSection) must refresh BOTH the per-card counts AND the OTHER two
+  // sections — they are siblings owning independent queries. A single bumped key,
+  // watched by both sections, propagates the refetch (FIX #1: a conflict created
+  // in MappingSection must surface in ConflictSection — and a conflict resolved in
+  // ConflictSection must return the winner SKU to MappingSection — without reload).
+  const [refreshKey, setRefreshKey] = useState(0);
+  const handleMutated = useCallback(() => {
     void refetchCounts();
-    setMappingRefreshKey((k) => k + 1);
+    setRefreshKey((k) => k + 1);
   }, [refetchCounts]);
 
   const unmappedCount = counts?.unmappedCount ?? 0;
@@ -81,16 +85,22 @@ export function ChainCard({ chain, initialUsername, credLoading }: ChainCardProp
         <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Carga de archivos
         </h3>
-        <ChainUpload chain={chain} onUploaded={handleUploaded} />
+        <ChainUpload chain={chain} onUploaded={handleMutated} />
       </section>
 
       {/* Task 10: mapping section — mounted unconditionally so Vista B (multi-value,
           §3.2.1) stays reachable in the stable, fully-mapped state. MappingSection
           owns its "Mapeo" heading and collapses to null when there is nothing to
-          map AND nothing mapped. Vista B no longer hides behind the per-card counts. */}
-      <MappingSection chain={chain} onMappingChange={refetchCounts} refreshKey={mappingRefreshKey} />
+          map AND nothing mapped. Vista B no longer hides behind the per-card counts.
+          onMappingChange now routes through handleMutated so creating a conflict here
+          bumps refreshKey → the sibling ConflictSection refetches (FIX #1). */}
+      <MappingSection chain={chain} onMappingChange={handleMutated} refreshKey={refreshKey} />
 
-      {/* TODO Task 11: conflict section */}
+      {/* Task 11: conflict resolution — self-hides when there are no CONFLICTED
+          rows. Listens to the shared refreshKey so a conflict fabricated in
+          MappingSection appears here without reload; resolving one routes through
+          handleMutated so the winner SKU returns to MappingSection (FIX #1). */}
+      <ConflictSection chain={chain} onResolved={handleMutated} refreshKey={refreshKey} />
     </Card>
   );
 }

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 
 export function UnmappedBanner({ count }: { count: number }) {
@@ -12,10 +13,12 @@ export function UnmappedBanner({ count }: { count: number }) {
         <span>
           {count === 1
             ? '1 producto sin mapear afecta la calidad del dashboard.'
-            : `${count} productos sin mapear afectan la calidad del dashboard.`}
+            : `${count} productos sin mapear afectan la calidad del dashboard.`}{' '}
+          <Link href="/portales" className="font-medium underline">
+            Resolver en Portales
+          </Link>
         </span>
       </div>
-      {/* B4 re-points this to /portales once Portales conflict/unmapped resolution exists (spec §3.2/§8.4). */}
     </div>
   );
 }

@@ -46,13 +46,12 @@ describe('GET /api/dashboard/onetable', () => {
     mockSession();
     const res = await GET(new Request('http://test/api/dashboard/onetable'));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { rows: unknown[]; unmappedCount: number; period: null };
+    const body = (await res.json()) as { rows: unknown[]; period: null };
     expect(body.rows).toEqual([]);
-    expect(body.unmappedCount).toBe(0);
     expect(body.period).toBeNull();
   });
 
-  it('returns classified rows for the requested period + unmapped count', async () => {
+  it('returns classified rows for the requested period', async () => {
     // Create a mapped Product so the Soriana row has isUnmapped=false.
     const mappedProduct = await db.product.create({
       data: { clientId, nameStandard: 'Producto Test Standard', skuCode: 'SKU-ONETABLE-1' },
@@ -89,7 +88,8 @@ describe('GET /api/dashboard/onetable', () => {
         },
       ],
     });
-    // Add an unmapped-product entry so unmappedCount=1.
+    // An unmapped-product entry exercises the unmapped path; the count itself
+    // moved to /api/dashboard/kpis, so this route no longer reports it.
     const dummyUpload = await db.upload.create({
       data: {
         clientId,
@@ -127,11 +127,9 @@ describe('GET /api/dashboard/onetable', () => {
           salesUnitsEstimated: boolean;
           daysOfInventory: number | null;
         }>;
-        unmappedCount: number;
       };
       expect(body.period).toEqual({ year: 2026, month: 1 });
       expect(body.rows).toHaveLength(2);
-      expect(body.unmappedCount).toBe(1);
 
       const soriana = body.rows.find((r) => r.chain === 'SORIANA')!;
       expect(soriana.alert).toBe('EXCESO');
