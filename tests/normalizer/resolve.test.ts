@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { db } from '@/lib/db';
 import { makeCuid } from '@/core/ids';
-import { backfillSelloutProductId, assignMapping, resolveConflict } from '@/core/normalizer/resolve';
+import { backfillSelloutProductId, assignMapping, resolveConflict, deleteMapping } from '@/core/normalizer/resolve';
 import type { Chain } from '@prisma/client';
 
 const TEST_EMAIL = 'b4-resolve@test.local';
@@ -264,5 +264,102 @@ describe('resolveConflict', () => {
     expect(rows[0].status).toBe('CONFIRMED');
     const s = await db.selloutData.findFirst({ where: { clientId, portalRawProduct: 'P' } });
     expect(s?.productId).toBe(skuA.id);
+  });
+});
+
+describe('deleteMapping', () => {
+  afterAll(async () => {
+    await db.user.deleteMany({ where: { email: { startsWith: 'b4-delete-' } } });
+  });
+
+  it('reverts ONLY the deleted string\'s sellout rows (multi-value footgun guard), re-queues it, removes the mapping', async () => {
+    const { clientId, userId } = await seedClient2('b4-delete-1@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    // Multi-value SKU: both P and P2 map to X (CONFIRMED).
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, status: 'CONFIRMED' } });
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P2', productId: skuX.id, status: 'CONFIRMED' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    // 5 rows attributed via P, 3 rows attributed via P2 — all to X. Distinct
+    // storeIds: the UPSERT key is (clientId,chain,storeId,portalRawProduct,year,month).
+    for (let i = 0; i < 5; i++) {
+      await db.selloutData.create({ data: { clientId, userId, uploadId: up.id, chain: 'AL_SUPER', productId: skuX.id, portalRawProduct: 'P', storeId: `SP${i}`, periodYear: 2026, periodMonth: 1, salesUnits: 1 } });
+    }
+    for (let i = 0; i < 3; i++) {
+      await db.selloutData.create({ data: { clientId, userId, uploadId: up.id, chain: 'AL_SUPER', productId: skuX.id, portalRawProduct: 'P2', storeId: `SP2${i}`, periodYear: 2026, periodMonth: 1, salesUnits: 1 } });
+    }
+
+    await deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, firstSeenUploadId: up.id });
+
+    // (a) the 5 P rows → NULL.
+    const pRows = await db.selloutData.findMany({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'P' }, select: { productId: true } });
+    expect(pRows).toHaveLength(5);
+    expect(pRows.every((r) => r.productId === null)).toBe(true);
+    // (b) the 3 P2 rows STILL attributed to X — the footgun guard: revert filtered
+    //     by portalRawProduct=P, NOT just productId=X.
+    const p2Rows = await db.selloutData.findMany({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'P2' }, select: { productId: true } });
+    expect(p2Rows).toHaveLength(3);
+    expect(p2Rows.every((r) => r.productId === skuX.id)).toBe(true);
+    // (c) P back in the unmapped queue (resolvedAt null).
+    const unmapped = await db.unmappedProduct.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
+    expect(unmapped).not.toBeNull();
+    expect(unmapped?.resolvedAt).toBeNull();
+    // (d) the (P, X) mapping no longer exists; (P2, X) still does.
+    const pMap = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
+    expect(pMap).toBeNull();
+    const p2Map = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P2' } });
+    expect(p2Map).not.toBeNull();
+  });
+
+  it('rejects deleting a CONFLICTED mapping (those are resolved via the conflict UI, not delete)', async () => {
+    const { clientId } = await seedClient2('b4-delete-2@test.local');
+    const skuA = await db.product.create({ data: { clientId, nameStandard: 'A', skuCode: makeCuid() } });
+    const skuB = await db.product.create({ data: { clientId, nameStandard: 'B', skuCode: makeCuid() } });
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuA.id, status: 'CONFLICTED' } });
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuB.id, status: 'CONFLICTED' } });
+
+    await expect(
+      deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuA.id, firstSeenUploadId: 'irrelevant' }),
+    ).rejects.toThrow();
+
+    // Untouched: both CONFLICTED rows survive.
+    const rows = await db.productMapping.findMany({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.status === 'CONFLICTED')).toBe(true);
+  });
+
+  // NO_UPLOAD path asserted at the SERVICE level: deleteMapping receives
+  // firstSeenUploadId as an arg (route derives + passes it — Option A keeps the
+  // upload derivation out of core). With no upload to anchor the re-queue, the
+  // route passes firstSeenUploadId=undefined and the shared requeue guard throws,
+  // rolling back the WHOLE tx (revert + delete must NOT persist without re-queue).
+  it('throws and rolls back the whole tx when there is no upload to re-anchor (firstSeenUploadId absent)', async () => {
+    const { clientId, userId } = await seedClient2('b4-delete-3@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, status: 'CONFIRMED' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    for (let i = 0; i < 4; i++) {
+      await db.selloutData.create({ data: { clientId, userId, uploadId: up.id, chain: 'AL_SUPER', productId: skuX.id, portalRawProduct: 'P', storeId: `SP${i}`, periodYear: 2026, periodMonth: 1, salesUnits: 1 } });
+    }
+
+    await expect(
+      deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, firstSeenUploadId: undefined }),
+    ).rejects.toThrow();
+
+    // Rolled back: SelloutData NOT nulled, mapping NOT deleted.
+    const rows = await db.selloutData.findMany({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'P' }, select: { productId: true } });
+    expect(rows).toHaveLength(4);
+    expect(rows.every((r) => r.productId === skuX.id)).toBe(true);
+    const m = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
+    expect(m).not.toBeNull();
+    expect(m?.status).toBe('CONFIRMED');
+  });
+
+  it('throws (404 path) when the mapping does not exist', async () => {
+    const { clientId } = await seedClient2('b4-delete-4@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+
+    await expect(
+      deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'NOPE', productId: skuX.id, firstSeenUploadId: 'anything' }),
+    ).rejects.toThrow();
   });
 });

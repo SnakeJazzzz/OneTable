@@ -27,6 +27,28 @@ export async function backfillSelloutProductId(
   return result.count;
 }
 
+// Re-queue a portalString into the UnmappedProduct queue (resolvedAt/resolvedProductId
+// cleared on update). Extracted verbatim from resolveConflict's "Ninguno" branch so
+// deleteMapping (§11.5a revert) shares the exact same guard + upsert behavior. The
+// firstSeenUploadId is RECEIVED as an arg — the upload derivation is route-policy
+// (mirrors conflicts/route.ts), never done here in core.
+//
+// `tx` is typed as the PrismaClient | TransactionClient union (same as
+// backfillSelloutProductId) so callers inside a $transaction pass `tx`.
+export async function requeueUnmappedProduct(
+  tx: PrismaClient | Prisma.TransactionClient,
+  args: { clientId: string; chain: Chain; portalString: string; firstSeenUploadId?: string },
+): Promise<void> {
+  if (!args.firstSeenUploadId) {
+    throw new Error('requeueUnmappedProduct requires firstSeenUploadId to re-anchor the portal string');
+  }
+  await tx.unmappedProduct.upsert({
+    where: { clientId_chain_portalString: { clientId: args.clientId, chain: args.chain, portalString: args.portalString } },
+    create: { clientId: args.clientId, chain: args.chain, portalString: args.portalString, firstSeenUploadId: args.firstSeenUploadId },
+    update: { resolvedAt: null, resolvedProductId: null },
+  });
+}
+
 type AssignResult = { kind: 'mapped' } | { kind: 'conflict' } | { kind: 'conflict_exists' };
 
 // D1 main flow + D3 conflict detection. Runs in a transaction.
@@ -157,14 +179,69 @@ export async function resolveConflict(
       await tx.productMapping.deleteMany({
         where: { clientId: args.clientId, chain: args.chain, portalString: args.portalString, status: 'CONFLICTED' },
       });
-      if (!args.firstSeenUploadId) {
-        throw new Error('resolveConflict "Ninguno" requires firstSeenUploadId to re-queue the unmapped string');
-      }
-      await tx.unmappedProduct.upsert({
-        where: { clientId_chain_portalString: { clientId: args.clientId, chain: args.chain, portalString: args.portalString } },
-        create: { clientId: args.clientId, chain: args.chain, portalString: args.portalString, firstSeenUploadId: args.firstSeenUploadId },
-        update: { resolvedAt: null, resolvedProductId: null },
+      // Guard + upsert extracted to requeueUnmappedProduct (behavior unchanged):
+      // throws the same error when firstSeenUploadId is absent.
+      await requeueUnmappedProduct(tx, {
+        clientId: args.clientId, chain: args.chain, portalString: args.portalString, firstSeenUploadId: args.firstSeenUploadId,
       });
     }
+  });
+}
+
+// §11.5a — delete a CONFIRMED/PENDING_REVIEW mapping (the inverse of assignMapping).
+// One atomic transaction: revert the backfill (inverse of backfillSelloutProductId),
+// delete the mapping row, re-queue the portalString. firstSeenUploadId is RECEIVED
+// as an arg — the route derives the most recent upload and passes it (mirrors
+// conflicts/route.ts); core never derives the upload.
+//
+// CONFLICTED mappings are NOT deletable here — those are resolved via the conflict
+// UI (resolveConflict). A non-existent mapping throws (route → 404).
+//
+// FOOTGUN (mirror of backfillSelloutProductId): the revert MUST filter
+// SelloutData by `portalRawProduct: portalString` — without it, a multi-value SKU
+// (P→X and P2→X) would lose P2's rows too. `productId` is the extra belt.
+export async function deleteMapping(
+  db: PrismaClient,
+  args: {
+    clientId: string;
+    chain: Chain;
+    portalString: string;
+    productId: string;
+    firstSeenUploadId?: string;
+  },
+): Promise<void> {
+  await db.$transaction(async (tx) => {
+    // 1. Verify the mapping exists, belongs to the client, and is NOT CONFLICTED.
+    const existing = await tx.productMapping.findFirst({
+      where: { clientId: args.clientId, chain: args.chain, portalString: args.portalString, productId: args.productId },
+    });
+    if (!existing) {
+      throw new Error('deleteMapping: mapping not found');
+    }
+    if (existing.status === 'CONFLICTED') {
+      throw new Error('deleteMapping: cannot delete a CONFLICTED mapping; resolve it via the conflict UI');
+    }
+
+    // 2. REVERT the backfill — inverse of backfillSelloutProductId. The
+    //    portalRawProduct filter is MANDATORY (multi-value footgun guard).
+    await tx.selloutData.updateMany({
+      where: {
+        clientId: args.clientId,
+        chain: args.chain,
+        portalRawProduct: args.portalString, // ← footgun: scope to THIS string only
+        productId: args.productId,
+      },
+      data: { productId: null },
+    });
+
+    // 3. DELETE the mapping row (scoped to the exact row we verified).
+    await tx.productMapping.delete({ where: { id: existing.id } });
+
+    // 4. Re-queue the string. If firstSeenUploadId is absent the guard throws,
+    //    which aborts the whole $transaction — steps 2 & 3 roll back, so we never
+    //    leave SelloutData nulled + mapping deleted without re-queueing.
+    await requeueUnmappedProduct(tx, {
+      clientId: args.clientId, chain: args.chain, portalString: args.portalString, firstSeenUploadId: args.firstSeenUploadId,
+    });
   });
 }
