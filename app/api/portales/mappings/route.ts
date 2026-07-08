@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
-import { assignMapping, deleteMapping } from '@/core/normalizer/resolve';
+import { assignMapping, deleteMapping, retargetMapping } from '@/core/normalizer/resolve';
 import { parseChain } from '@/lib/portales/chains';
 import type { MappingStatus } from '@prisma/client';
 
@@ -77,6 +77,52 @@ export async function DELETE(req: Request): Promise<Response> {
     }
     if (msg.includes('not found')) {
       return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
+    }
+    throw e;
+  }
+  return Response.json({ ok: true });
+}
+
+// PATCH { chain, portalString, oldProductId, newProductId } → retargetMapping (§11.6a).
+// Re-points a mapped string to a different SKU in ONE step (revert + update-in-place
+// + backfill, all inside the service transaction). Thin route: every guard lives in
+// the service; here we only parse, auth-scope, and map throws → status codes.
+export async function PATCH(req: Request): Promise<Response> {
+  const s = await requireAuth();
+  if (s instanceof Response) return s;
+  let body: { chain?: string; portalString?: string; oldProductId?: string; newProductId?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return errorResponse('INVALID_BODY', 'Body must be JSON', 400);
+  }
+  const chain = parseChain(body.chain ?? null);
+  if (!chain) return errorResponse('INVALID_CHAIN', 'Unknown chain', 400);
+  if (!body.portalString || !body.oldProductId || !body.newProductId) {
+    return errorResponse('INVALID_BODY', 'portalString, oldProductId and newProductId required', 400);
+  }
+
+  try {
+    await retargetMapping(db, {
+      clientId: s.clientId,
+      chain,
+      portalString: body.portalString,
+      oldProductId: body.oldProductId,
+      newProductId: body.newProductId,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '';
+    if (msg.includes('CONFLICTED')) {
+      return errorResponse('CONFLICTED', 'Ese mapeo está en conflicto; resolvelo desde la sección de conflictos.', 409);
+    }
+    if (msg.includes('not found')) {
+      return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
+    }
+    if (msg.includes('equals oldProductId')) {
+      return errorResponse('NOOP_RETARGET', 'El SKU nuevo es igual al actual.', 409);
+    }
+    if (msg.includes('does not exist or does not belong')) {
+      return errorResponse('PRODUCT_NOT_FOUND', 'Ese SKU no existe en tu catálogo.', 409);
     }
     throw e;
   }

@@ -101,6 +101,13 @@ interface DeletedHandler {
   (portalString: string): void | Promise<void>;
 }
 
+// Retarget path (§11.6b): on a successful PATCH the section runs the SAME shared
+// refetch as delete/map — not a parallel path. The row's string stays mapped, just
+// under a different SKU group after the refetch.
+interface RetargetedHandler {
+  (portalString: string): void | Promise<void>;
+}
+
 function SkuSelect({
   id,
   value,
@@ -260,13 +267,17 @@ interface MappedGroup {
 function MappedGroupItem({
   chain,
   group,
+  skus,
   onOutcome,
   onDeleted,
+  onRetargeted,
 }: {
   chain: Chain;
   group: MappedGroup;
+  skus: Sku[];
   onOutcome: OutcomeHandler;
   onDeleted: DeletedHandler;
+  onRetargeted: RetargetedHandler;
 }) {
   const idBase = `map-${chain}-${group.productId}`.replace(/[^a-zA-Z0-9-]/g, '_');
   const [adding, setAdding] = useState(false);
@@ -277,6 +288,14 @@ function MappedGroupItem({
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Retarget flow (§11.6b): inline per-row edit, one row at a time, keyed by the
+  // portalString being edited. No ConfirmDialog — retarget is reversible (retarget
+  // back), unlike delete which reverts attributed data to "sin mapear".
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editPick, setEditPick] = useState('');
+  const [retargeting, setRetargeting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   async function add() {
     const portalString = value.trim();
@@ -323,6 +342,41 @@ function MappedGroupItem({
     }
   }
 
+  // PATCH the edited row only: oldProductId is THE row's SKU (multi-value siblings
+  // of the same string under other SKUs are untouched — the service scopes by tuple).
+  async function confirmRetarget(portalString: string, oldProductId: string) {
+    if (!editPick || retargeting) return;
+    setRetargeting(true);
+    setEditError(null);
+    try {
+      const res = await fetch('/api/portales/mappings', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chain, portalString, oldProductId, newProductId: editPick }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: { code?: string; message?: string } }
+        | null;
+      // res.ok FIRST: a 409/404 carries error.message, never { ok } — the row stays
+      // in edit mode so the user sees why (CONFLICTED / MAPPING_NOT_FOUND / ...).
+      if (!res.ok) {
+        setEditError(data?.error?.message ?? `Error al cambiar (${res.status})`);
+        setRetargeting(false);
+        return;
+      }
+      // 200 { ok: true }: exit edit mode, then run the shared refetch (same path
+      // as Quitar/+Agregar — Task 11 cross-propagation).
+      setRetargeting(false);
+      setEditing(null);
+      setEditPick('');
+      await onRetargeted(portalString);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Error de red');
+      setRetargeting(false);
+    }
+  }
+
   return (
     <li className="rounded-md border border-border bg-card/50 p-3 space-y-2">
       <p className="text-sm font-medium text-foreground">
@@ -332,28 +386,92 @@ function MappedGroupItem({
       <ul className="space-y-1">
         {group.rows.map((r) => {
           const removing = deleting && pendingDelete === r.portalString;
+          const isEditing = editing === r.portalString;
+          const editId = `${idBase}-retarget-${r.id}`;
           return (
-            <li key={r.id} className="flex items-center gap-2 text-sm text-muted-foreground break-words">
-              <span className="text-foreground">{r.portalString}</span>
-              {r.status === 'PENDING_REVIEW' && (
-                <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
-                  por verificar
-                </span>
+            <li key={r.id} className="space-y-2 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 break-words">
+                <span className="text-foreground">{r.portalString}</span>
+                {r.status === 'PENDING_REVIEW' && (
+                  <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
+                    por verificar
+                  </span>
+                )}
+                {/* "Cambiar" (§11.6b): inline retarget — no ConfirmDialog, retarget
+                    is reversible. Opening it resets any previous pick/error. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditError(null);
+                    setEditPick('');
+                    setEditing(r.portalString);
+                  }}
+                  disabled={deleting || retargeting}
+                  aria-label={`Cambiar SKU de ${r.portalString}`}
+                  className="ml-auto text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cambiar
+                </button>
+                {/* Vista B only: discreet destructive-secondary "Quitar" — reverts
+                    attributed data, so it always goes through ConfirmDialog. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setPendingDelete(r.portalString);
+                  }}
+                  disabled={deleting || retargeting}
+                  aria-label={`Quitar mapeo de ${r.portalString}`}
+                  className="text-xs text-destructive hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {removing ? 'Quitando…' : 'Quitar'}
+                </button>
+              </div>
+
+              {isEditing && (
+                <div className="space-y-2 rounded-md border border-border bg-card/50 p-2">
+                  <div className="space-y-1">
+                    <Label htmlFor={editId}>Cambiar a SKU</Label>
+                    {/* The CURRENT SKU is excluded: the service's no-op 409 must be
+                        unreachable from the UI. */}
+                    <SkuSelect
+                      id={editId}
+                      value={editPick}
+                      onChange={setEditPick}
+                      skus={skus.filter((s) => s.id !== r.productId)}
+                      disabled={retargeting}
+                    />
+                  </div>
+                  {editError && (
+                    <p role="alert" className="text-xs text-destructive">
+                      {editError}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      onClick={() => confirmRetarget(r.portalString, r.productId)}
+                      disabled={retargeting || !editPick}
+                    >
+                      {retargeting ? 'Cambiando…' : 'Cambiar SKU'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={() => {
+                        if (!retargeting) {
+                          setEditing(null);
+                          setEditPick('');
+                          setEditError(null);
+                        }
+                      }}
+                      disabled={retargeting}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
               )}
-              {/* Vista B only: discreet destructive-secondary "Quitar" — reverts
-                  attributed data, so it always goes through ConfirmDialog. */}
-              <button
-                type="button"
-                onClick={() => {
-                  setDeleteError(null);
-                  setPendingDelete(r.portalString);
-                }}
-                disabled={deleting}
-                aria-label={`Quitar mapeo de ${r.portalString}`}
-                className="ml-auto text-xs text-destructive hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {removing ? 'Quitando…' : 'Quitar'}
-              </button>
             </li>
           );
         })}
@@ -486,6 +604,17 @@ export function MappingSection({
     [suggestionsQ, mappingsQ, onMappingChange],
   );
 
+  // Retarget reuses the SAME shared refetch + onMappingChange as delete/map —
+  // NOT a parallel path (§11.6b). The string re-appears under its new SKU group.
+  const handleRetargeted = useCallback<RetargetedHandler>(
+    async (portalString) => {
+      setNotice({ kind: 'mapped', message: `"${portalString}" cambiado de SKU.` });
+      await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
+      onMappingChange();
+    },
+    [suggestionsQ, mappingsQ, onMappingChange],
+  );
+
   // Group existing mappings by productId; CONFLICTED rows are NOT rendered as
   // normal mappings (their resolution is Task 11).
   const groups: MappedGroup[] = useMemo(() => {
@@ -596,8 +725,10 @@ export function MappingSection({
                     key={g.productId}
                     chain={chain}
                     group={g}
+                    skus={catalog.skus}
                     onOutcome={handleOutcome}
                     onDeleted={handleDeleted}
+                    onRetargeted={handleRetargeted}
                   />
                 ))}
               </ul>
