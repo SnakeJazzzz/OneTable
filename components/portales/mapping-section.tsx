@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Chain } from '@prisma/client';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -90,6 +91,14 @@ type Notice = { kind: 'mapped' | 'conflict' | 'error'; message: string };
 
 interface OutcomeHandler {
   (outcome: PostOutcome, portalString: string): void | Promise<void>;
+}
+
+// Delete path: on a successful DELETE the section runs the SAME shared refetch
+// (suggestions + mappings) and fires onMappingChange, preserving the Task 11
+// cross-propagation (conflict section / dashboard banner). The row string
+// disappears and re-enters the "sin mapear" count.
+interface DeletedHandler {
+  (portalString: string): void | Promise<void>;
 }
 
 function SkuSelect({
@@ -252,15 +261,22 @@ function MappedGroupItem({
   chain,
   group,
   onOutcome,
+  onDeleted,
 }: {
   chain: Chain;
   group: MappedGroup;
   onOutcome: OutcomeHandler;
+  onDeleted: DeletedHandler;
 }) {
   const idBase = `map-${chain}-${group.productId}`.replace(/[^a-zA-Z0-9-]/g, '_');
   const [adding, setAdding] = useState(false);
   const [value, setValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Delete flow: one dialog at a time, keyed by the portalString being removed.
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function add() {
     const portalString = value.trim();
@@ -275,6 +291,38 @@ function MappedGroupItem({
     await onOutcome(outcome, portalString);
   }
 
+  async function confirmDelete() {
+    const portalString = pendingDelete;
+    if (portalString === null || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch('/api/portales/mappings', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chain, portalString, productId: group.productId }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: { code?: string; message?: string } }
+        | null;
+      // res.ok FIRST: a 409/404 carries error.message; the dialog stays open so
+      // the user sees why (NO_UPLOAD / CONFLICTED / MAPPING_NOT_FOUND).
+      if (!res.ok) {
+        setDeleteError(data?.error?.message ?? `Error al quitar (${res.status})`);
+        setDeleting(false);
+        return;
+      }
+      // 200 { ok: true }: close, then run the shared refetch (same path as +Agregar).
+      setDeleting(false);
+      setPendingDelete(null);
+      await onDeleted(portalString);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Error de red');
+      setDeleting(false);
+    }
+  }
+
   return (
     <li className="rounded-md border border-border bg-card/50 p-3 space-y-2">
       <p className="text-sm font-medium text-foreground">
@@ -282,17 +330,55 @@ function MappedGroupItem({
         <span className="text-xs font-normal text-muted-foreground">({group.skuCode})</span>
       </p>
       <ul className="space-y-1">
-        {group.rows.map((r) => (
-          <li key={r.id} className="flex items-center gap-2 text-sm text-muted-foreground break-words">
-            <span className="text-foreground">{r.portalString}</span>
-            {r.status === 'PENDING_REVIEW' && (
-              <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
-                por verificar
-              </span>
-            )}
-          </li>
-        ))}
+        {group.rows.map((r) => {
+          const removing = deleting && pendingDelete === r.portalString;
+          return (
+            <li key={r.id} className="flex items-center gap-2 text-sm text-muted-foreground break-words">
+              <span className="text-foreground">{r.portalString}</span>
+              {r.status === 'PENDING_REVIEW' && (
+                <span className="rounded bg-yellow-500/15 px-1.5 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
+                  por verificar
+                </span>
+              )}
+              {/* Vista B only: discreet destructive-secondary "Quitar" — reverts
+                  attributed data, so it always goes through ConfirmDialog. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteError(null);
+                  setPendingDelete(r.portalString);
+                }}
+                disabled={deleting}
+                aria-label={`Quitar mapeo de ${r.portalString}`}
+                className="ml-auto text-xs text-destructive hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {removing ? 'Quitando…' : 'Quitar'}
+              </button>
+            </li>
+          );
+        })}
       </ul>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="¿Quitar este mapeo?"
+        description={
+          pendingDelete !== null
+            ? `El string «${pendingDelete}» se va a desmapear de ${group.nameStandard}. Sus filas vuelven a 'sin mapear' y salen del análisis por SKU hasta que lo remapees.`
+            : ''
+        }
+        confirmLabel="Quitar"
+        cancelLabel="Cancelar"
+        loading={deleting}
+        errorMessage={deleteError}
+        onConfirm={confirmDelete}
+        onCancel={() => {
+          if (!deleting) {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }
+        }}
+      />
 
       {adding ? (
         <div className="space-y-2">
@@ -384,6 +470,18 @@ export function MappingSection({
       } else {
         setNotice({ kind: 'error', message: outcome.message });
       }
+    },
+    [suggestionsQ, mappingsQ, onMappingChange],
+  );
+
+  // Delete reuses the SAME shared refetch + onMappingChange as handleOutcome's
+  // mapped branch — NOT a parallel path. Keeps mapping↔conflict↔counts↔banner
+  // in sync (Task 11 cross-propagation).
+  const handleDeleted = useCallback<DeletedHandler>(
+    async (portalString) => {
+      setNotice({ kind: 'mapped', message: `"${portalString}" volvió a "sin mapear".` });
+      await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
+      onMappingChange();
     },
     [suggestionsQ, mappingsQ, onMappingChange],
   );
@@ -494,7 +592,13 @@ export function MappingSection({
               <h4 className="text-sm font-medium text-foreground">Ya mapeados</h4>
               <ul className="space-y-2">
                 {groups.map((g) => (
-                  <MappedGroupItem key={g.productId} chain={chain} group={g} onOutcome={handleOutcome} />
+                  <MappedGroupItem
+                    key={g.productId}
+                    chain={chain}
+                    group={g}
+                    onOutcome={handleOutcome}
+                    onDeleted={handleDeleted}
+                  />
                 ))}
               </ul>
             </div>
