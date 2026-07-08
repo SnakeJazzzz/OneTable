@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { db } from '@/lib/db';
 import { makeCuid } from '@/core/ids';
-import { backfillSelloutProductId, assignMapping, resolveConflict, deleteMapping } from '@/core/normalizer/resolve';
+import { backfillSelloutProductId, assignMapping, resolveConflict, deleteMapping, retargetMapping } from '@/core/normalizer/resolve';
 import type { Chain } from '@prisma/client';
 
 const TEST_EMAIL = 'b4-resolve@test.local';
@@ -393,5 +393,206 @@ describe('deleteMapping', () => {
     await expect(
       deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'NOPE', productId: skuX.id, firstSeenUploadId: 'anything' }),
     ).rejects.toThrow();
+  });
+});
+
+describe('retargetMapping', () => {
+  afterAll(async () => {
+    await db.user.deleteMany({ where: { email: { startsWith: 'b4-retarget-' } } });
+  });
+
+  it('happy path: retargets P→X to Y in-place — rows re-attributed, same mapping row id, status CONFIRMED', async () => {
+    const { clientId, userId } = await seedClient2('b4-retarget-1@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    const skuY = await db.product.create({ data: { clientId, nameStandard: 'Y', skuCode: makeCuid() } });
+    const before = await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, status: 'CONFIRMED' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    for (let i = 0; i < 4; i++) {
+      await db.selloutData.create({ data: { clientId, userId, uploadId: up.id, chain: 'AL_SUPER', productId: skuX.id, portalRawProduct: 'P', storeId: `SP${i}`, periodYear: 2026, periodMonth: 1, salesUnits: 1 } });
+    }
+
+    await retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', oldProductId: skuX.id, newProductId: skuY.id });
+
+    // All P rows now attributed to Y.
+    const rows = await db.selloutData.findMany({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'P' }, select: { productId: true } });
+    expect(rows).toHaveLength(4);
+    expect(rows.every((r) => r.productId === skuY.id)).toBe(true);
+    // In-place UPDATE: exactly one mapping row, SAME id as before (catches a
+    // drift to delete+create), productId=Y, status=CONFIRMED.
+    const maps = await db.productMapping.findMany({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
+    expect(maps).toHaveLength(1);
+    expect(maps[0].id).toBe(before.id);
+    expect(maps[0].productId).toBe(skuY.id);
+    expect(maps[0].status).toBe('CONFIRMED');
+  });
+
+  it('MULTI-VALUE GUARD: retargeting P1→X leaves P2→X (rows AND mapping) fully intact', async () => {
+    const { clientId, userId } = await seedClient2('b4-retarget-2@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    const skuY = await db.product.create({ data: { clientId, nameStandard: 'Y', skuCode: makeCuid() } });
+    // Multi-value SKU: P1 and P2 both map to X.
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P1', productId: skuX.id, status: 'CONFIRMED' } });
+    const p2Map = await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P2', productId: skuX.id, status: 'CONFIRMED' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    for (let i = 0; i < 5; i++) {
+      await db.selloutData.create({ data: { clientId, userId, uploadId: up.id, chain: 'AL_SUPER', productId: skuX.id, portalRawProduct: 'P1', storeId: `SA${i}`, periodYear: 2026, periodMonth: 1, salesUnits: 1 } });
+    }
+    for (let i = 0; i < 3; i++) {
+      await db.selloutData.create({ data: { clientId, userId, uploadId: up.id, chain: 'AL_SUPER', productId: skuX.id, portalRawProduct: 'P2', storeId: `SB${i}`, periodYear: 2026, periodMonth: 1, salesUnits: 1 } });
+    }
+
+    await retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P1', oldProductId: skuX.id, newProductId: skuY.id });
+
+    // P1 rows moved to Y.
+    const p1Rows = await db.selloutData.findMany({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'P1' }, select: { productId: true } });
+    expect(p1Rows).toHaveLength(5);
+    expect(p1Rows.every((r) => r.productId === skuY.id)).toBe(true);
+    // P2 rows UNTOUCHED (still X) — the portalRawProduct filter in both
+    // primitives is the guard; without it these 3 rows would be reverted/swept.
+    const p2Rows = await db.selloutData.findMany({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'P2' }, select: { productId: true } });
+    expect(p2Rows).toHaveLength(3);
+    expect(p2Rows.every((r) => r.productId === skuX.id)).toBe(true);
+    // P2 mapping untouched.
+    const p2After = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P2' } });
+    expect(p2After?.id).toBe(p2Map.id);
+    expect(p2After?.productId).toBe(skuX.id);
+    expect(p2After?.status).toBe('CONFIRMED');
+  });
+
+  it('UnmappedProduct queue untouched: identical before/after, no queue row for the retargeted string', async () => {
+    const { clientId, userId } = await seedClient2('b4-retarget-3@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    const skuY = await db.product.create({ data: { clientId, nameStandard: 'Y', skuCode: makeCuid() } });
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P1', productId: skuX.id, status: 'CONFIRMED' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    await mkSellout(clientId, userId, up.id, 'AL_SUPER', 'P1', skuX.id);
+    // Unrelated queue entry (a different, genuinely unmapped string).
+    await db.unmappedProduct.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'OTHER-UNMAPPED', firstSeenUploadId: up.id } });
+    const queueBefore = await db.unmappedProduct.findMany({ where: { clientId }, orderBy: { id: 'asc' } });
+
+    await retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P1', oldProductId: skuX.id, newProductId: skuY.id });
+
+    // Queue state identical before/after (the string never stops being mapped).
+    const queueAfter = await db.unmappedProduct.findMany({ where: { clientId }, orderBy: { id: 'asc' } });
+    expect(queueAfter).toEqual(queueBefore);
+    // And specifically: no queue row for P1.
+    const p1Queue = await db.unmappedProduct.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P1' } });
+    expect(p1Queue).toBeNull();
+  });
+
+  it('rejects a CONFLICTED mapping — throws, zero mutations (conflicts go through resolveConflict)', async () => {
+    const { clientId, userId } = await seedClient2('b4-retarget-4@test.local');
+    const skuA = await db.product.create({ data: { clientId, nameStandard: 'A', skuCode: makeCuid() } });
+    const skuB = await db.product.create({ data: { clientId, nameStandard: 'B', skuCode: makeCuid() } });
+    const skuC = await db.product.create({ data: { clientId, nameStandard: 'C', skuCode: makeCuid() } });
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuA.id, status: 'CONFLICTED' } });
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuB.id, status: 'CONFLICTED' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    await mkSellout(clientId, userId, up.id, 'AL_SUPER', 'P', null);
+
+    await expect(
+      retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', oldProductId: skuA.id, newProductId: skuC.id }),
+    ).rejects.toThrow();
+
+    // Zero mutations: both CONFLICTED rows survive with their productIds; sellout still NULL.
+    const maps = await db.productMapping.findMany({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
+    expect(maps).toHaveLength(2);
+    expect(maps.every((m) => m.status === 'CONFLICTED')).toBe(true);
+    expect(new Set(maps.map((m) => m.productId))).toEqual(new Set([skuA.id, skuB.id]));
+    const s = await db.selloutData.findFirst({ where: { clientId, portalRawProduct: 'P' } });
+    expect(s?.productId).toBeNull();
+  });
+
+  it('throws (404 path) when the mapping does not exist', async () => {
+    const { clientId } = await seedClient2('b4-retarget-5@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    const skuY = await db.product.create({ data: { clientId, nameStandard: 'Y', skuCode: makeCuid() } });
+
+    await expect(
+      retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'NOPE', oldProductId: skuX.id, newProductId: skuY.id }),
+    ).rejects.toThrow(/not found/);
+  });
+
+  it('rejects newProductId === oldProductId — throws, zero writes', async () => {
+    const { clientId, userId } = await seedClient2('b4-retarget-6@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    // PENDING_REVIEW on purpose: a spurious status write (→ CONFIRMED) would be caught below.
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, status: 'PENDING_REVIEW' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    await mkSellout(clientId, userId, up.id, 'AL_SUPER', 'P', skuX.id);
+
+    await expect(
+      retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', oldProductId: skuX.id, newProductId: skuX.id }),
+    ).rejects.toThrow();
+
+    // Zero writes: mapping keeps productId AND status; sellout keeps attribution.
+    const m = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
+    expect(m?.productId).toBe(skuX.id);
+    expect(m?.status).toBe('PENDING_REVIEW');
+    const s = await db.selloutData.findFirst({ where: { clientId, portalRawProduct: 'P' } });
+    expect(s?.productId).toBe(skuX.id);
+  });
+
+  it('rejects a newProductId belonging to ANOTHER client — throws, zero mutations', async () => {
+    const { clientId, userId } = await seedClient2('b4-retarget-7@test.local');
+    const { clientId: otherClientId } = await seedClient2('b4-retarget-7b@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    const foreignY = await db.product.create({ data: { clientId: otherClientId, nameStandard: 'Y', skuCode: makeCuid() } });
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, status: 'CONFIRMED' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    await mkSellout(clientId, userId, up.id, 'AL_SUPER', 'P', skuX.id);
+
+    await expect(
+      retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', oldProductId: skuX.id, newProductId: foreignY.id }),
+    ).rejects.toThrow();
+
+    // Zero mutations: mapping still X/CONFIRMED, sellout still attributed to X.
+    const m = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
+    expect(m?.productId).toBe(skuX.id);
+    expect(m?.status).toBe('CONFIRMED');
+    const s = await db.selloutData.findFirst({ where: { clientId, portalRawProduct: 'P' } });
+    expect(s?.productId).toBe(skuX.id);
+  });
+
+  it('sweeps pre-existing NULL rows of the string to the new SKU (backfill step 5 behavior)', async () => {
+    const { clientId, userId } = await seedClient2('b4-retarget-8@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    const skuY = await db.product.create({ data: { clientId, nameStandard: 'Y', skuCode: makeCuid() } });
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, status: 'CONFIRMED' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    // 2 rows attributed to X + 2 pre-existing NULL rows for the SAME string
+    // (e.g. leftovers from an old conflict window).
+    for (let i = 0; i < 2; i++) {
+      await db.selloutData.create({ data: { clientId, userId, uploadId: up.id, chain: 'AL_SUPER', productId: skuX.id, portalRawProduct: 'P', storeId: `SX${i}`, periodYear: 2026, periodMonth: 1, salesUnits: 1 } });
+    }
+    for (let i = 0; i < 2; i++) {
+      await db.selloutData.create({ data: { clientId, userId, uploadId: up.id, chain: 'AL_SUPER', productId: null, portalRawProduct: 'P', storeId: `SN${i}`, periodYear: 2026, periodMonth: 1, salesUnits: 1 } });
+    }
+
+    await retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', oldProductId: skuX.id, newProductId: skuY.id });
+
+    // ALL 4 rows (previously-attributed AND previously-NULL) end on Y: the string
+    // now maps to Y, so its NULL leftovers belong to Y too — deliberate.
+    const rows = await db.selloutData.findMany({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'P' }, select: { productId: true } });
+    expect(rows).toHaveLength(4);
+    expect(rows.every((r) => r.productId === skuY.id)).toBe(true);
+  });
+
+  it('PENDING_REVIEW mapping retargeted → ends CONFIRMED (deliberate confirmation)', async () => {
+    const { clientId, userId } = await seedClient2('b4-retarget-9@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    const skuY = await db.product.create({ data: { clientId, nameStandard: 'Y', skuCode: makeCuid() } });
+    const before = await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, status: 'PENDING_REVIEW' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    await mkSellout(clientId, userId, up.id, 'AL_SUPER', 'P', skuX.id);
+
+    await retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', oldProductId: skuX.id, newProductId: skuY.id });
+
+    const m = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
+    expect(m?.id).toBe(before.id);
+    expect(m?.productId).toBe(skuY.id);
+    expect(m?.status).toBe('CONFIRMED');
+    const s = await db.selloutData.findFirst({ where: { clientId, portalRawProduct: 'P' } });
+    expect(s?.productId).toBe(skuY.id);
   });
 });

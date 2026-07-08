@@ -27,6 +27,33 @@ export async function backfillSelloutProductId(
   return result.count;
 }
 
+// THE shared SelloutData revert — exact inverse mirror of backfillSelloutProductId.
+// Extracted verbatim from deleteMapping's step 2 (§11.5a) so retargetMapping (§11.6a)
+// shares the exact same revert. Sets productId back to NULL and returns the count
+// (the count IS deleteMapping's presence-of-data signal — no extra query).
+//
+// FOOTGUN (mirror of backfillSelloutProductId): the revert MUST filter
+// SelloutData by `portalRawProduct: portalString` — without it, a multi-value SKU
+// (P→X and P2→X) would lose P2's rows too. `productId` is the extra belt.
+//
+// `db` is a PrismaClient OR a transaction client — typed as the union so callers
+// inside a $transaction pass `tx`.
+export async function revertSelloutProductId(
+  db: PrismaClient | Prisma.TransactionClient,
+  args: { clientId: string; chain: Chain; portalString: string; productId: string },
+): Promise<number> {
+  const result = await db.selloutData.updateMany({
+    where: {
+      clientId: args.clientId,
+      chain: args.chain,
+      portalRawProduct: args.portalString, // ← footgun: scope to THIS string only
+      productId: args.productId,
+    },
+    data: { productId: null },
+  });
+  return result.count;
+}
+
 // Re-queue a portalString into the UnmappedProduct queue (resolvedAt/resolvedProductId
 // cleared on update). Extracted verbatim from resolveConflict's "Ninguno" branch so
 // deleteMapping (§11.5a revert) shares the exact same guard + upsert behavior. The
@@ -225,18 +252,12 @@ export async function deleteMapping(
       throw new Error('deleteMapping: cannot delete a CONFLICTED mapping; resolve it via the conflict UI');
     }
 
-    // 2. REVERT the backfill — inverse of backfillSelloutProductId. The
-    //    portalRawProduct filter is MANDATORY (multi-value footgun guard).
+    // 2. REVERT the backfill — inverse of backfillSelloutProductId, via the
+    //    shared primitive (portalRawProduct filter = multi-value footgun guard).
     //    The count of reverted rows IS the presence-of-data signal for step 4
     //    (no extra query needed).
-    const reverted = await tx.selloutData.updateMany({
-      where: {
-        clientId: args.clientId,
-        chain: args.chain,
-        portalRawProduct: args.portalString, // ← footgun: scope to THIS string only
-        productId: args.productId,
-      },
-      data: { productId: null },
+    const reverted = await revertSelloutProductId(tx, {
+      clientId: args.clientId, chain: args.chain, portalString: args.portalString, productId: args.productId,
     });
 
     // 3. DELETE the mapping row (scoped to the exact row we verified).
@@ -251,10 +272,85 @@ export async function deleteMapping(
     //    conditional lives HERE (the caller), NOT inside requeueUnmappedProduct —
     //    the primitive is shared with resolveConflict's "Ninguno" branch, whose
     //    behavior must not change.
-    if (reverted.count > 0) {
+    if (reverted > 0) {
       await requeueUnmappedProduct(tx, {
         clientId: args.clientId, chain: args.chain, portalString: args.portalString, firstSeenUploadId: args.firstSeenUploadId,
       });
     }
+  });
+}
+
+// §11.6a — re-target an active (CONFIRMED/PENDING_REVIEW) mapping to a different
+// SKU, IN-PLACE. One atomic transaction: revert → update → backfill. This is an
+// UPDATE of the existing mapping row (id/createdAt preserved), NOT delete+create,
+// NOT an orchestration of deleteMapping+assignMapping — the string never stops
+// being mapped, so it never passes through the conflict flow or the unmapped queue.
+//
+// Guards (all BEFORE any mutation):
+//  - mapping not found → throw (route → 404).
+//  - CONFLICTED → throw (conflicts are resolved via resolveConflict, never here).
+//  - newProductId === oldProductId → throw (no-op retarget prohibited; zero writes).
+//  - newProductId must exist AND belong to clientId (tenancy check lives HERE in
+//    the service, not delegated to the route).
+//
+// ORDER revert→update→backfill is NON-NEGOTIABLE: the backfill matches
+// productId IS NULL — run before the revert it would match 0 rows and the later
+// revert would leave everything NULL ("retargeted but de-attributed"). Both
+// primitives filter by portalRawProduct — the multi-value footgun guard.
+//
+// DESIGN NOTE: the backfill (step 5) also sweeps PRE-EXISTING NULL rows of the
+// same portalString (e.g. leftovers from an old conflict window). Deliberate:
+// the string now maps to newProductId, those rows belong to it. UnmappedProduct
+// is NOT touched in any step — the string never stops being mapped — hence no
+// firstSeenUploadId in the signature: no requeue is possible here.
+export async function retargetMapping(
+  db: PrismaClient,
+  args: {
+    clientId: string;
+    chain: Chain;
+    portalString: string;
+    oldProductId: string;
+    newProductId: string;
+  },
+): Promise<void> {
+  await db.$transaction(async (tx) => {
+    // 1. The mapping must exist for this exact (clientId, chain, portalString, oldProductId) tuple.
+    const existing = await tx.productMapping.findFirst({
+      where: { clientId: args.clientId, chain: args.chain, portalString: args.portalString, productId: args.oldProductId },
+    });
+    if (!existing) {
+      throw new Error('retargetMapping: mapping not found');
+    }
+
+    // 2. Guards, before any mutation.
+    if (existing.status === 'CONFLICTED') {
+      throw new Error('retargetMapping: cannot retarget a CONFLICTED mapping; resolve it via the conflict UI');
+    }
+    if (args.newProductId === args.oldProductId) {
+      throw new Error('retargetMapping: newProductId equals oldProductId (no-op retarget is not allowed)');
+    }
+    const target = await tx.product.findFirst({
+      where: { id: args.newProductId, clientId: args.clientId },
+    });
+    if (!target) {
+      throw new Error('retargetMapping: newProductId does not exist or does not belong to this client');
+    }
+
+    // 3. REVERT the old attribution (scoped to THIS string — footgun guard).
+    await revertSelloutProductId(tx, {
+      clientId: args.clientId, chain: args.chain, portalString: args.portalString, productId: args.oldProductId,
+    });
+
+    // 4. UPDATE the mapping row in-place (same id, same createdAt). CONFIRMED
+    //    always — a re-target is a deliberate confirmation, even from PENDING_REVIEW.
+    await tx.productMapping.update({
+      where: { id: existing.id },
+      data: { productId: args.newProductId, status: 'CONFIRMED' },
+    });
+
+    // 5. BACKFILL to the new SKU (matches productId IS NULL — see design note).
+    await backfillSelloutProductId(tx, {
+      clientId: args.clientId, chain: args.chain, portalString: args.portalString, productId: args.newProductId,
+    });
   });
 }
