@@ -354,6 +354,38 @@ describe('deleteMapping', () => {
     expect(m?.status).toBe('CONFIRMED');
   });
 
+  // §11.5a-fix: presence-of-data rule. A string added by hand (+Agregar otro
+  // string) that NEVER came in a file has no SelloutData rows — deleting its
+  // mapping must NOT re-queue it into UnmappedProduct (there are no orphan sales
+  // to re-attribute; requeueing would create a false "sin mapear" task).
+  it('does NOT re-queue a string with zero SelloutData rows (manually added string)', async () => {
+    const { clientId, userId } = await seedClient2('b4-delete-5@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    // Manual mapping: CONFIRMED, but the string never appeared in any upload.
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'MANUAL-ONLY', productId: skuX.id, status: 'CONFIRMED' } });
+    const up = await mkUpload(clientId, userId, 'AL_SUPER');
+    // Sibling sellout row via a DIFFERENT string, attributed to the same SKU —
+    // proves the delete touches no SelloutData at all.
+    await db.selloutData.create({ data: { clientId, userId, uploadId: up.id, chain: 'AL_SUPER', productId: skuX.id, portalRawProduct: 'OTHER', storeId: 'SO1', periodYear: 2026, periodMonth: 1, salesUnits: 1 } });
+
+    // The route still derives + passes firstSeenUploadId; the no-requeue decision
+    // must come from the data-presence signal, not from a missing uploadId.
+    await deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'MANUAL-ONLY', productId: skuX.id, firstSeenUploadId: up.id });
+
+    // (a) the mapping no longer exists.
+    const m = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'MANUAL-ONLY' } });
+    expect(m).toBeNull();
+    // (b) NOT re-queued: no UnmappedProduct row for the string.
+    const unmapped = await db.unmappedProduct.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'MANUAL-ONLY' } });
+    expect(unmapped).toBeNull();
+    // (c) no SelloutData was touched: zero rows for the string, and the sibling
+    //     row (different string, same SKU) keeps its attribution.
+    const manualRows = await db.selloutData.count({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'MANUAL-ONLY' } });
+    expect(manualRows).toBe(0);
+    const sibling = await db.selloutData.findFirst({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'OTHER' } });
+    expect(sibling?.productId).toBe(skuX.id);
+  });
+
   it('throws (404 path) when the mapping does not exist', async () => {
     const { clientId } = await seedClient2('b4-delete-4@test.local');
     const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });

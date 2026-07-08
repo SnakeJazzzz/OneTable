@@ -190,9 +190,12 @@ export async function resolveConflict(
 
 // §11.5a — delete a CONFIRMED/PENDING_REVIEW mapping (the inverse of assignMapping).
 // One atomic transaction: revert the backfill (inverse of backfillSelloutProductId),
-// delete the mapping row, re-queue the portalString. firstSeenUploadId is RECEIVED
-// as an arg — the route derives the most recent upload and passes it (mirrors
-// conflicts/route.ts); core never derives the upload.
+// delete the mapping row, re-queue the portalString ONLY if the revert touched real
+// SelloutData rows (§11.5a-fix, presence-of-data rule): a string added by hand
+// (+Agregar otro string) that never came in a file has no rows — nothing orphaned
+// to re-attribute — so requeueing it would create a false "sin mapear" task.
+// firstSeenUploadId is RECEIVED as an arg — the route derives the most recent
+// upload and passes it (mirrors conflicts/route.ts); core never derives the upload.
 //
 // CONFLICTED mappings are NOT deletable here — those are resolved via the conflict
 // UI (resolveConflict). A non-existent mapping throws (route → 404).
@@ -224,7 +227,9 @@ export async function deleteMapping(
 
     // 2. REVERT the backfill — inverse of backfillSelloutProductId. The
     //    portalRawProduct filter is MANDATORY (multi-value footgun guard).
-    await tx.selloutData.updateMany({
+    //    The count of reverted rows IS the presence-of-data signal for step 4
+    //    (no extra query needed).
+    const reverted = await tx.selloutData.updateMany({
       where: {
         clientId: args.clientId,
         chain: args.chain,
@@ -237,11 +242,19 @@ export async function deleteMapping(
     // 3. DELETE the mapping row (scoped to the exact row we verified).
     await tx.productMapping.delete({ where: { id: existing.id } });
 
-    // 4. Re-queue the string. If firstSeenUploadId is absent the guard throws,
-    //    which aborts the whole $transaction — steps 2 & 3 roll back, so we never
-    //    leave SelloutData nulled + mapping deleted without re-queueing.
-    await requeueUnmappedProduct(tx, {
-      clientId: args.clientId, chain: args.chain, portalString: args.portalString, firstSeenUploadId: args.firstSeenUploadId,
-    });
+    // 4. Re-queue the string ONLY when real rows were reverted (§11.5a-fix).
+    //    count === 0 → manually added string with no data: delete ends here, no
+    //    false "sin mapear" task. count > 0 → same behavior as before; if
+    //    firstSeenUploadId is absent the shared guard throws, which aborts the
+    //    whole $transaction — steps 2 & 3 roll back, so we never leave
+    //    SelloutData nulled + mapping deleted without re-queueing. The
+    //    conditional lives HERE (the caller), NOT inside requeueUnmappedProduct —
+    //    the primitive is shared with resolveConflict's "Ninguno" branch, whose
+    //    behavior must not change.
+    if (reverted.count > 0) {
+      await requeueUnmappedProduct(tx, {
+        clientId: args.clientId, chain: args.chain, portalString: args.portalString, firstSeenUploadId: args.firstSeenUploadId,
+      });
+    }
   });
 }
