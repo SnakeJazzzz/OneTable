@@ -25,7 +25,6 @@ export interface OneTableRow {
 
 export interface UseOneTableResult {
   rows: OneTableRow[];
-  unmappedCount: number;
   loading: boolean;
   error: string | null;
 }
@@ -41,7 +40,6 @@ function buildPeriodQuery(periodKey: string | undefined): string {
 
 export function useOneTable(periodKey?: string): UseOneTableResult {
   const [rows, setRows] = useState<OneTableRow[]>([]);
-  const [unmappedCount, setUnmappedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,12 +52,11 @@ export function useOneTable(periodKey?: string): UseOneTableResult {
     fetch(url, { credentials: 'include', signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error(`OneTable request failed (${res.status})`);
-        return (await res.json()) as { rows: OneTableRow[]; unmappedCount: number };
+        return (await res.json()) as { rows: OneTableRow[] };
       })
       .then((body) => {
         if (controller.signal.aborted) return;
         setRows(body.rows);
-        setUnmappedCount(body.unmappedCount);
         setLoading(false);
       })
       .catch((err) => {
@@ -72,5 +69,5 @@ export function useOneTable(periodKey?: string): UseOneTableResult {
     return () => controller.abort();
   }, [periodKey]);
 
-  return { rows, unmappedCount, loading, error };
+  return { rows, loading, error };
 }

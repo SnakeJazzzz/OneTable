@@ -1,8 +1,9 @@
 /**
- * GET /api/dashboard/onetable — full per-store rows for a period, plus the
- * unmapped-products count for the banner above the table.
+ * GET /api/dashboard/onetable — full per-store rows for a period.
  *
- * Powers the consolidated OneTable on /dashboard (G5b).
+ * Powers the consolidated OneTable on /dashboard (G5b). The unmapped-products
+ * count moved to the dashboard onboarding banners (§8.4, served by
+ * /api/dashboard/kpis); this route no longer returns it.
  *
  * Query params (both optional):
  *   ?periodYear=YYYY
@@ -10,7 +11,7 @@
  *
  * If absent or invalid, the route resolves the default via getDefaultPeriod
  * (multi-chain-preferred, same as /api/dashboard/kpis). When the client has
- * no data, returns empty arrays + period=null + unmappedCount=0.
+ * no data, returns empty arrays + period=null.
  *
  * Auth: required. clientId + userId from the JWT; double-belt WHERE.
  */
@@ -42,7 +43,6 @@ export async function GET(req: Request): Promise<Response> {
       return Response.json({
         period: null,
         rows: [],
-        unmappedCount: 0,
       });
     }
     periodYear = def.periodYear;
@@ -52,14 +52,10 @@ export async function GET(req: Request): Promise<Response> {
   // Per-client alert bands, loaded ONCE per request (not per row).
   const cuts = await getThresholdCuts(db, clientId);
 
-  const [rows, unmappedCount] = await Promise.all([
-    getOneTableRows(db, { clientId, userId, periodYear, periodMonth }, cuts),
-    db.unmappedProduct.count({ where: { clientId, resolvedAt: null } }),
-  ]);
+  const rows = await getOneTableRows(db, { clientId, userId, periodYear, periodMonth }, cuts);
 
   return Response.json({
     period: { year: periodYear, month: periodMonth },
     rows,
-    unmappedCount,
   });
 }

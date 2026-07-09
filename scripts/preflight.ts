@@ -63,6 +63,7 @@ import { amazonVentasParser } from '../core/parsers/amazon-ventas';
 import { amazonInvParser } from '../core/parsers/amazon-inv';
 import type { PortalParser } from '../core/parsers/types';
 import { normalize } from '../core/normalizer';
+import { buildMappingLookup } from '../core/normalizer/lookup';
 import {
   getDashboardKpis,
   getSalesTrend,
@@ -143,7 +144,7 @@ async function main(): Promise<void> {
     const client = await db.client.findFirstOrThrow({ where: { name: DEMO_CLIENT_NAME } });
     const user = await db.user.findFirstOrThrow({ where: { email: DEMO_USER_EMAIL } });
     const mappings = await db.productMapping.findMany({ where: { clientId: client.id } });
-    const lookup = new Map(mappings.map(m => [`${m.chain}:${m.portalString}`, m.productId]));
+    const mappingLookup = buildMappingLookup(mappings);
     console.log(
       `[preflight] Seed loaded: clientId=${client.id.slice(0, 12)}… userId=${user.id.slice(0, 12)}… mappings=${mappings.length}`,
     );
@@ -188,7 +189,7 @@ async function main(): Promise<void> {
           userId: user.id,
           uploadId: uploadRow.id,
           parserResult: parsed,
-          mappingLookup: (chain, portalString) => lookup.get(`${chain}:${portalString}`) ?? null,
+          mappingLookup,
         },
         db,
       );

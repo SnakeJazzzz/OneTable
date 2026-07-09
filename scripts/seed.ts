@@ -7,8 +7,8 @@
  *  - Product catalog imported from docs/specs/viks-data/catalogo-productos.xlsx
  *    (via core/catalog/import.ts — single source of truth, no hardcoding)
  *  - 6 PortalCredential rows (one per Chain) with placeholder usernames and
- *    hasPasswordPending=true. Password storage is deferred to Fase 2 with KMS
- *    (spec §6.1, §10).
+ *    hasPasswordPending=true. Password storage is deferred to Fase 3
+ *    (spec §6.1; AES-256-GCM design in onetable-fase3-spec-draft.md §1).
  *
  * SelloutData / Upload / UnmappedProduct are intentionally left empty. The
  * demo IS the live upload at /analisis (spec §6.3).

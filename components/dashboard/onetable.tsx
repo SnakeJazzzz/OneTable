@@ -8,7 +8,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AlertBadge } from './alert-badge';
-import { UnmappedBanner } from './unmapped-banner';
 import { useOneTable, type OneTableRow } from '@/lib/hooks/use-onetable';
 import { cn } from '@/lib/utils';
 
@@ -112,7 +111,7 @@ function downloadBlob(data: BlobPart, mime: string, filename: string) {
 }
 
 export function OneTable({ periodKey }: { periodKey: string | undefined }) {
-  const { rows, unmappedCount, loading, error } = useOneTable(periodKey);
+  const { rows, loading, error } = useOneTable(periodKey);
 
   // Filter state
   const [chain, setChain] = useState<string>('');
@@ -199,8 +198,6 @@ export function OneTable({ periodKey }: { periodKey: string | undefined }) {
 
   return (
     <section className="space-y-4">
-      <UnmappedBanner count={unmappedCount} />
-
       <Card className="p-5 space-y-4">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>

@@ -2,12 +2,16 @@
 // the Fase 3 Python service. Own implementation (no fuzzy library) per the
 // supply-chain protocol.
 
+import { canonicalizeWeights } from './weight';
+
 // Lowercase, replace every non-letter/non-number/non-space with a space, split
 // on whitespace, drop length-1 noise tokens, dedup into a Set. \p{L}\p{N} with
 // the u flag keeps accented letters (e.g. "jalapeño") and digits (e.g. "86g").
+// canonicalizeWeights runs first so "86 GR" and "86g" collapse to the same
+// token (§5.3/D4).
 export function tokenize(s: string): Set<string> {
   return new Set(
-    s
+    canonicalizeWeights(s)
       .toLowerCase()
       .replace(/[^\p{L}\p{N}\s]/gu, ' ')
       .split(/\s+/)

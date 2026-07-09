@@ -102,6 +102,11 @@ describe('GET /api/dashboard/kpis', () => {
     expect(body).toHaveProperty('semaforo');
     expect(body).toHaveProperty('topSkus');
     expect(body).toHaveProperty('daysInv');
+    // Global, period-independent onboarding counts (B4 §8.4).
+    expect(body).toHaveProperty('unmappedCount');
+    expect(body).toHaveProperty('conflictCount');
+    expect(typeof body.unmappedCount).toBe('number');
+    expect(typeof body.conflictCount).toBe('number');
 
     expect(body.kpis.salesAmountMxn).toBe(1100); // 1000 + 100
     expect(body.kpis.salesUnits).toBe(110); // 100 + 10
@@ -143,6 +148,9 @@ describe('GET /api/dashboard/kpis', () => {
       expect(body.semaforo).toEqual([]);
       expect(body.topSkus).toEqual([]);
       expect(body.daysInv).toEqual([]);
+      // Counts are present and real (not stripped) even in the empty state.
+      expect(typeof body.unmappedCount).toBe('number');
+      expect(typeof body.conflictCount).toBe('number');
     } finally {
       await db.user.delete({ where: { id: u.id } });
     }

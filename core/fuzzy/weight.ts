@@ -9,6 +9,15 @@ export function extractWeightGrams(s: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Collapse any "<n> <unit>" weight expression to a canonical "<n>g" token so
+// "86 GR", "86 GRAMOS", "86g" all tokenize identically (§5.3/D4). Applied
+// inside tokenize() before splitting. Does NOT change extractWeightGrams (which
+// reads raw grams for the weight-penalty guard).
+const WEIGHT_RE_G = /\b(\d{1,4})\s*(g|gr|grs|gramos?)\b/gi;
+export function canonicalizeWeights(s: string): string {
+  return s.replace(WEIGHT_RE_G, (_m, n: string) => `${n}g`);
+}
+
 // Multiplicative guard applied on top of the token-set ratio. Returns 1 (no
 // penalty) when a weight can't be compared — either side missing, or equal.
 // Otherwise scales down by the relative gram difference, clamped at 0. This is

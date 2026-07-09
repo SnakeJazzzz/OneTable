@@ -1,0 +1,245 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import type { Chain } from '@prisma/client';
+
+// ---- Credentials ----
+
+export interface CredentialRow {
+  chain: Chain;
+  username: string;
+  isActive: boolean;
+  hasPasswordPending: boolean;
+}
+
+export interface UseCredentialsResult {
+  credentials: CredentialRow[];
+  loading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
+
+export function useCredentials(): UseCredentialsResult {
+  const [credentials, setCredentials] = useState<CredentialRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch('/api/portales/credentials', { credentials: 'include' });
+      if (!res.ok) throw new Error(`Credentials request failed (${res.status})`);
+      const body = (await res.json()) as { credentials: CredentialRow[] };
+      setCredentials(body.credentials);
+    } catch (err) {
+      console.error('[useCredentials] fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar credenciales');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { credentials, loading, error, refetch };
+}
+
+// ---- Chain Counts ----
+
+export interface ChainCounts {
+  unmappedCount: number;
+  pendingReviewCount: number;
+  conflictCount: number;
+}
+
+export interface UseChainCountsResult {
+  counts: ChainCounts | null;
+  loading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
+
+export function useChainCounts(chain: Chain): UseChainCountsResult {
+  const [counts, setCounts] = useState<ChainCounts | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/portales/counts?chain=${chain}`, { credentials: 'include' });
+      if (!res.ok) throw new Error(`Counts request failed (${res.status})`);
+      const body = (await res.json()) as ChainCounts;
+      setCounts(body);
+    } catch (err) {
+      console.error('[useChainCounts] fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar conteos');
+    } finally {
+      setLoading(false);
+    }
+  }, [chain]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { counts, loading, error, refetch };
+}
+
+// ---- Chain Mappings ----
+// Consumed in Task 10 (mapping UI).
+
+export type MappingStatus = 'CONFIRMED' | 'PENDING_REVIEW' | 'CONFLICTED';
+
+export interface MappingRow {
+  id: string;
+  portalString: string;
+  productId: string;
+  status: MappingStatus;
+  product: { nameStandard: string; skuCode: string };
+}
+
+export interface ChainMappingsData {
+  mappings: MappingRow[];
+}
+
+export interface UseChainMappingsResult {
+  data: ChainMappingsData | null;
+  loading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
+
+export function useChainMappings(chain: Chain): UseChainMappingsResult {
+  const [data, setData] = useState<ChainMappingsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/portales/mappings?chain=${chain}`, { credentials: 'include' });
+      if (!res.ok) throw new Error(`Mappings request failed (${res.status})`);
+      setData((await res.json()) as ChainMappingsData);
+    } catch (err) {
+      console.error('[useChainMappings] fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar mappings');
+    } finally {
+      setLoading(false);
+    }
+  }, [chain]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { data, loading, error, refetch };
+}
+
+// ---- Chain Suggestions ----
+// Consumed in Task 10 (mapping UI).
+
+export type SuggestionBand = 'high' | 'medium' | 'low';
+
+export interface SuggestionRow {
+  portalString: string;
+  suggestion: {
+    productId: string | null;
+    nameStandard: string | null;
+    score: number;
+    band: SuggestionBand;
+  };
+}
+
+export interface ChainSuggestionsData {
+  codeSkip: boolean;
+  suggestions: SuggestionRow[];
+}
+
+export interface UseChainSuggestionsResult {
+  data: ChainSuggestionsData | null;
+  loading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
+
+export function useChainSuggestions(chain: Chain): UseChainSuggestionsResult {
+  const [data, setData] = useState<ChainSuggestionsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/portales/mappings/suggestions?chain=${chain}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Suggestions request failed (${res.status})`);
+      setData((await res.json()) as ChainSuggestionsData);
+    } catch (err) {
+      console.error('[useChainSuggestions] fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar sugerencias');
+    } finally {
+      setLoading(false);
+    }
+  }, [chain]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { data, loading, error, refetch };
+}
+
+// ---- Chain Conflicts ----
+// Consumed in Task 11 (conflict resolution UI).
+
+export interface ConflictCandidate {
+  productId: string;
+  nameStandard: string;
+  skuCode: string;
+}
+
+export interface ChainConflict {
+  portalString: string;
+  candidates: ConflictCandidate[];
+}
+
+export interface ChainConflictsResponse {
+  conflicts: ChainConflict[];
+}
+
+export interface UseChainConflictsResult {
+  data: ChainConflictsResponse | null;
+  loading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
+
+export function useChainConflicts(chain: Chain): UseChainConflictsResult {
+  const [data, setData] = useState<ChainConflictsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/portales/conflicts?chain=${chain}`, { credentials: 'include' });
+      if (!res.ok) throw new Error(`Conflicts request failed (${res.status})`);
+      setData((await res.json()) as ChainConflictsResponse);
+    } catch (err) {
+      console.error('[useChainConflicts] fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar conflictos');
+    } finally {
+      setLoading(false);
+    }
+  }, [chain]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { data, loading, error, refetch };
+}
