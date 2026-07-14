@@ -319,7 +319,7 @@ describe('deleteMapping', () => {
 
     await expect(
       deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuA.id, firstSeenUploadId: 'irrelevant' }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/cannot delete a CONFLICTED mapping/);
 
     // Untouched: both CONFLICTED rows survive.
     const rows = await db.productMapping.findMany({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
@@ -343,7 +343,7 @@ describe('deleteMapping', () => {
 
     await expect(
       deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', productId: skuX.id, firstSeenUploadId: undefined }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/requires firstSeenUploadId/);
 
     // Rolled back: SelloutData NOT nulled, mapping NOT deleted.
     const rows = await db.selloutData.findMany({ where: { clientId, chain: 'AL_SUPER', portalRawProduct: 'P' }, select: { productId: true } });
@@ -392,7 +392,7 @@ describe('deleteMapping', () => {
 
     await expect(
       deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'NOPE', productId: skuX.id, firstSeenUploadId: 'anything' }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/mapping not found/);
   });
 });
 
@@ -492,7 +492,7 @@ describe('retargetMapping', () => {
 
     await expect(
       retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', oldProductId: skuA.id, newProductId: skuC.id }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/cannot retarget a CONFLICTED mapping/);
 
     // Zero mutations: both CONFLICTED rows survive with their productIds; sellout still NULL.
     const maps = await db.productMapping.findMany({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
@@ -523,7 +523,7 @@ describe('retargetMapping', () => {
 
     await expect(
       retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', oldProductId: skuX.id, newProductId: skuX.id }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/newProductId equals oldProductId/);
 
     // Zero writes: mapping keeps productId AND status; sellout keeps attribution.
     const m = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });
@@ -544,7 +544,7 @@ describe('retargetMapping', () => {
 
     await expect(
       retargetMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'P', oldProductId: skuX.id, newProductId: foreignY.id }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/does not exist or does not belong/);
 
     // Zero mutations: mapping still X/CONFIRMED, sellout still attributed to X.
     const m = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'P' } });

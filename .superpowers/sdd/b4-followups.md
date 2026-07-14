@@ -1,6 +1,6 @@
 ## Task 6 — code-quality follow-ups (logged 2026-06-26, NOT done in Task 6)
 
-- [ ] #3 Route-handler behavioral tests for credentials route (401 / JSON-parse 400 /
+- [x] **cerrado en FF-3, 2026-07-13.** #3 Route-handler behavioral tests for credentials route (401 / JSON-parse 400 /
       unknown-chain 400 / blank-username 400 / `{ ok: true }` PUT shape), mocking `@/auth`
       like sibling routes. DO IN ONE coverage pass across all 4 Portales routes
       (mappings / conflicts / counts / credentials), not one-by-one.
@@ -81,7 +81,7 @@ Items #4-#7 → fold into the B4 whole-branch final review.
 
 Route sweep (fold into the #3 coverage pass or the whole-branch review):
 
-- [ ] **`PRODUCT_NOT_FOUND` status inconsistency in `app/api/portales/mappings/route.ts`:**
+- [x] **cerrado en FF-3, 2026-07-13 (unificado a 404 en el PATCH).** **`PRODUCT_NOT_FOUND` status inconsistency in `app/api/portales/mappings/route.ts`:**
       404 in POST (route.ts:38) vs 409 in PATCH (route.ts:125) for the same semantic error
       code. 404 is the semantically correct one; unify when the file is next touched.
 - [ ] **Substring error-matching in route throw-mapping (DELETE + PATCH):** `msg.includes(...)`
@@ -106,7 +106,7 @@ mapping-section.tsx (fold into whole-branch review):
 
 Tests (fold into whole-branch review):
 
-- [ ] **Lax `.rejects.toThrow()` (no matcher) in guard tests:** retargetMapping tests
+- [x] **cerrado en FF-3, 2026-07-13 (6 matchers agregados).** **Lax `.rejects.toThrow()` (no matcher) in guard tests:** retargetMapping tests
       b4-retarget-4/6/7 don't assert WHICH guard threw (state assertions mitigate). Twin
       pre-existing debt in the deleteMapping tests (same style). Add message matchers in one pass.
 - [ ] **11.5a-fix edge without its own test:** deleteMapping with count 0 + missing

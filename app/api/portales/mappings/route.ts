@@ -122,7 +122,7 @@ export async function PATCH(req: Request): Promise<Response> {
       return errorResponse('NOOP_RETARGET', 'El SKU nuevo es igual al actual.', 409);
     }
     if (msg.includes('does not exist or does not belong')) {
-      return errorResponse('PRODUCT_NOT_FOUND', 'Ese SKU no existe en tu catálogo.', 409);
+      return errorResponse('PRODUCT_NOT_FOUND', 'Ese SKU no existe en tu catálogo.', 404);
     }
     throw e;
   }
