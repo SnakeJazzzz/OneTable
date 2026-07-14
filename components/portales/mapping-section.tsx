@@ -108,6 +108,13 @@ interface RetargetedHandler {
   (portalString: string): void | Promise<void>;
 }
 
+// Confirm path (FF-1): PENDING_REVIEW -> CONFIRMED via the SAME postMapping POST
+// used by Vista A, then the SAME shared refetch as delete/retarget/map. The badge
+// disappears because the refetched row comes back CONFIRMED — never optimistic.
+interface ConfirmedHandler {
+  (portalString: string): void | Promise<void>;
+}
+
 function SkuSelect({
   id,
   value,
@@ -271,6 +278,7 @@ function MappedGroupItem({
   onOutcome,
   onDeleted,
   onRetargeted,
+  onConfirmed,
 }: {
   chain: Chain;
   group: MappedGroup;
@@ -278,6 +286,7 @@ function MappedGroupItem({
   onOutcome: OutcomeHandler;
   onDeleted: DeletedHandler;
   onRetargeted: RetargetedHandler;
+  onConfirmed: ConfirmedHandler;
 }) {
   const idBase = `map-${chain}-${group.productId}`.replace(/[^a-zA-Z0-9-]/g, '_');
   const [adding, setAdding] = useState(false);
@@ -296,6 +305,14 @@ function MappedGroupItem({
   const [editPick, setEditPick] = useState('');
   const [retargeting, setRetargeting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  // Confirm flow (FF-1): PENDING_REVIEW -> CONFIRMED. No dialog (non-destructive,
+  // reversible via "Cambiar"/"Quitar"), so `confirming` doubles as the row key AND
+  // the in-flight flag — exactly one row confirms at a time within this group.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<{ portalString: string; message: string } | null>(
+    null,
+  );
 
   async function add() {
     const portalString = value.trim();
@@ -377,6 +394,28 @@ function MappedGroupItem({
     }
   }
 
+  // Same tuple as the row being confirmed — productId comes from the row itself
+  // (never the group's, though they're equal here), so a stray retarget mid-flight
+  // can't smuggle a different SKU into the request. Reuses postMapping (the same
+  // POST Vista A uses) with status: 'CONFIRMED' explicit, per the backend contract.
+  async function confirmRow(portalString: string, productId: string) {
+    if (confirming) return;
+    setConfirming(portalString);
+    setConfirmError(null);
+    const outcome = await postMapping({ chain, portalString, productId, status: 'CONFIRMED' });
+    setConfirming(null);
+    if (outcome.kind === 'mapped') {
+      await onConfirmed(portalString);
+      return;
+    }
+    // conflict_exists is not expected in the normal single-user flow (a concurrent
+    // write could still produce it) — the fallback message below handles it defensively.
+    setConfirmError({
+      portalString,
+      message: outcome.kind === 'error' ? outcome.message : 'No se pudo confirmar (conflicto inesperado).',
+    });
+  }
+
   return (
     <li className="rounded-md border border-border bg-card/50 p-3 space-y-2">
       <p className="text-sm font-medium text-foreground">
@@ -397,6 +436,20 @@ function MappedGroupItem({
                     por verificar
                   </span>
                 )}
+                {/* "Confirmar" (FF-1): only for PENDING_REVIEW rows — CONFIRMED rows
+                    have no outstanding action here. Fires the same POST as Vista A's
+                    "Aceptar"/"Mapear", just re-targeted at this row's own tuple. */}
+                {r.status === 'PENDING_REVIEW' && (
+                  <button
+                    type="button"
+                    onClick={() => confirmRow(r.portalString, r.productId)}
+                    disabled={deleting || retargeting || confirming !== null}
+                    aria-label={`Confirmar mapeo de ${r.portalString}`}
+                    className="ml-auto text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {confirming === r.portalString ? 'Confirmando…' : 'Confirmar'}
+                  </button>
+                )}
                 {/* "Cambiar" (§11.6b): inline retarget — no ConfirmDialog, retarget
                     is reversible. Opening it resets any previous pick/error. */}
                 <button
@@ -404,11 +457,15 @@ function MappedGroupItem({
                   onClick={() => {
                     setEditError(null);
                     setEditPick('');
+                    if (confirmError?.portalString === r.portalString) setConfirmError(null);
                     setEditing(r.portalString);
                   }}
-                  disabled={deleting || retargeting}
+                  disabled={deleting || retargeting || confirming !== null}
                   aria-label={`Cambiar SKU de ${r.portalString}`}
-                  className="ml-auto text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                  className={cn(
+                    'text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50',
+                    r.status !== 'PENDING_REVIEW' && 'ml-auto',
+                  )}
                 >
                   Cambiar
                 </button>
@@ -418,15 +475,22 @@ function MappedGroupItem({
                   type="button"
                   onClick={() => {
                     setDeleteError(null);
+                    if (confirmError?.portalString === r.portalString) setConfirmError(null);
                     setPendingDelete(r.portalString);
                   }}
-                  disabled={deleting || retargeting}
+                  disabled={deleting || retargeting || confirming !== null}
                   aria-label={`Quitar mapeo de ${r.portalString}`}
                   className="text-xs text-destructive hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {removing ? 'Quitando…' : 'Quitar'}
                 </button>
               </div>
+
+              {confirmError && confirmError.portalString === r.portalString && (
+                <p role="alert" className="text-xs text-destructive">
+                  {confirmError.message}
+                </p>
+              )}
 
               {isEditing && (
                 <div className="space-y-2 rounded-md border border-border bg-card/50 p-2">
@@ -615,6 +679,18 @@ export function MappingSection({
     [suggestionsQ, mappingsQ, onMappingChange],
   );
 
+  // Confirm (FF-1) reuses the SAME shared refetch + onMappingChange as
+  // delete/retarget/map — NOT a parallel path. The "por verificar" badge
+  // disappears because the refetched row comes back CONFIRMED.
+  const handleConfirmed = useCallback<ConfirmedHandler>(
+    async (portalString) => {
+      setNotice({ kind: 'mapped', message: `"${portalString}" confirmado.` });
+      await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
+      onMappingChange();
+    },
+    [suggestionsQ, mappingsQ, onMappingChange],
+  );
+
   // Group existing mappings by productId; CONFLICTED rows are NOT rendered as
   // normal mappings (their resolution is Task 11).
   const groups: MappedGroup[] = useMemo(() => {
@@ -729,6 +805,7 @@ export function MappingSection({
                     onOutcome={handleOutcome}
                     onDeleted={handleDeleted}
                     onRetargeted={handleRetargeted}
+                    onConfirmed={handleConfirmed}
                   />
                 ))}
               </ul>
