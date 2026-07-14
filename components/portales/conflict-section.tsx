@@ -47,7 +47,10 @@ function ConflictItem({
 }: {
   chain: Chain;
   conflict: { portalString: string; candidates: { productId: string; nameStandard: string; skuCode: string }[] };
-  onResolved: () => void | Promise<void>;
+  // FF-2 (b): carries which branch resolved (winnerProductId !== null -> "Es éste",
+  // null -> "Ninguno") so the SECTION (which survives this item's unmount) can pick
+  // the right success message. Internal to conflict-section.tsx only.
+  onResolved: (winnerProductId: string | null) => void | Promise<void>;
 }) {
   const { portalString, candidates } = conflict;
   const [submitting, setSubmitting] = useState(false);
@@ -61,7 +64,7 @@ function ConflictItem({
     setSubmitting(false);
     if (result.ok) {
       // Parent refetches conflicts + counts; this item unmounts on success.
-      await onResolved();
+      await onResolved(winnerProductId);
     } else {
       setError(result.message);
     }
@@ -135,6 +138,11 @@ export function ConflictSection({
   const { data, error, refetch } = useChainConflicts(chain);
   const conflicts = data?.conflicts ?? [];
 
+  // FF-2 (b): section-level success notice. Lives here (not in ConflictItem)
+  // because the item unmounts as soon as the refetch drops it from `conflicts` —
+  // a single message at a time, replaced on the next resolution, no auto-dismiss.
+  const [notice, setNotice] = useState<string | null>(null);
+
   // Mirror MappingSection's anti-double-fetch guard: the hook already fetches on
   // its own mount, so skip the first effect run and only refetch on later bumps.
   const firstRefresh = useRef(true);
@@ -148,10 +156,14 @@ export function ConflictSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
-  const handleResolved = useCallback(async () => {
-    await refetch();
-    onResolved();
-  }, [refetch, onResolved]);
+  const handleResolved = useCallback(
+    async (winnerProductId: string | null) => {
+      setNotice(winnerProductId !== null ? 'Conflicto resuelto.' : 'String devuelto a sin mapear.');
+      await refetch();
+      onResolved();
+    },
+    [refetch, onResolved],
+  );
 
   // FIX #2: a failed conflicts load must NOT look like "all resolved". Surface the
   // error BEFORE the empty self-hide so a load failure renders inline instead of
@@ -172,25 +184,45 @@ export function ConflictSection({
     );
   }
 
-  // Self-hide when there is nothing in conflict (the card owns counts).
-  if (conflicts.length === 0) return null;
+  const hasContent = conflicts.length > 0;
+
+  // Self-hide when there is nothing in conflict AND no success notice to show
+  // (mirrors mapping-section's `!hasContent && !notice` — FF-2 requirement 7).
+  if (!hasContent && !notice) return null;
 
   return (
     <section className="space-y-2">
       <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         En conflicto
       </h3>
-      <p className="text-sm text-muted-foreground">{CONFLICT_HELP}</p>
-      <ul className="space-y-2">
-        {conflicts.map((conflict) => (
-          <ConflictItem
-            key={conflict.portalString}
-            chain={chain}
-            conflict={conflict}
-            onResolved={handleResolved}
-          />
-        ))}
-      </ul>
+
+      {/* Success notice (FF-2 part b): survives the item's unmount because it lives
+          at section level. Replaced by the next resolution, no timer. */}
+      {notice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-md border px-3 py-2 text-sm border-primary/40 bg-primary/10 text-foreground"
+        >
+          {notice}
+        </div>
+      )}
+
+      {hasContent && (
+        <>
+          <p className="text-sm text-muted-foreground">{CONFLICT_HELP}</p>
+          <ul className="space-y-2">
+            {conflicts.map((conflict) => (
+              <ConflictItem
+                key={conflict.portalString}
+                chain={chain}
+                conflict={conflict}
+                onResolved={handleResolved}
+              />
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

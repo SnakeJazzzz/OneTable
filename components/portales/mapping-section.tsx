@@ -87,7 +87,10 @@ async function postMapping(body: {
 const selectClasses =
   'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50';
 
-type Notice = { kind: 'mapped' | 'conflict' | 'error'; message: string };
+// portalString is set ONLY on the conflict branch (FF-2 part a) — it lets the
+// self-clearing effect below target the exact string whose conflict got resolved,
+// instead of parsing it back out of `message`.
+type Notice = { kind: 'mapped' | 'conflict' | 'error'; message: string; portalString?: string };
 
 interface OutcomeHandler {
   (outcome: PostOutcome, portalString: string): void | Promise<void>;
@@ -636,6 +639,28 @@ export function MappingSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
+  // FF-2 (a): a conflict notice must clear itself once ITS OWN portalString no
+  // longer has any CONFLICTED row — i.e. once it got resolved in ConflictSection
+  // (either branch: "Es éste" -> CONFIRMED, "Ninguno" -> rows deleted). Reacting to
+  // mappingsQ.data (rather than to refreshKey directly) means this only fires once
+  // fresh data has actually landed, and only clears THIS notice — a refetch caused
+  // by an unrelated mutation (upload, another row) won't have any CONFLICTED row
+  // for this string either way, so it's still safe, but the check stays scoped to
+  // this string on purpose (never an unconditional clear-on-refetch).
+  useEffect(() => {
+    if (!notice || notice.kind !== 'conflict' || !notice.portalString) return;
+    // A failed refetch leaves mappingsQ.data stale (pre-mutation or pre-resolution)
+    // — that's not evidence the conflict got resolved, so skip clearing until a
+    // refetch actually succeeds.
+    if (mappingsQ.error) return;
+    const rows = mappingsQ.data?.mappings;
+    if (!rows) return; // data not loaded yet — do not clear on absence (edge case)
+    const stillConflicted = rows.some(
+      (r) => r.portalString === notice.portalString && r.status === 'CONFLICTED',
+    );
+    if (!stillConflicted) setNotice(null);
+  }, [mappingsQ.data, mappingsQ.error, notice]);
+
   const handleOutcome = useCallback<OutcomeHandler>(
     async (outcome, portalString) => {
       if (outcome.kind === 'mapped') {
@@ -643,11 +668,20 @@ export function MappingSection({
         await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
         onMappingChange();
       } else if (outcome.kind === 'conflict') {
+        // ORDER IS MANDATORY here (FF-2 fix pass): refetch BEFORE setNotice. The
+        // clear-effect below reads mappingsQ.data on every render this notice is
+        // conflict-kind. If setNotice ran first, the render it triggers would still
+        // see PRE-mutation data (no CONFLICTED row for this string yet — the POST
+        // hasn't been reflected by a refetch) and the effect would immediately clear
+        // the notice we just set. Refetching first guarantees that by the time the
+        // notice exists, mappingsQ.data already contains the CONFLICTED rows, so the
+        // effect only clears it once a LATER resolution actually removes them.
+        await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
         setNotice({
           kind: 'conflict',
+          portalString,
           message: `"${portalString}" generó un conflicto. Resolvelo en la sección "En conflicto".`,
         });
-        await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
         onMappingChange();
       } else {
         setNotice({ kind: 'error', message: outcome.message });

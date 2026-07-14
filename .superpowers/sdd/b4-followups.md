@@ -134,3 +134,18 @@ Service-design notes (document-or-decide; no action unless a future flow trips t
       externo y el mismo portalString reaparece, el error re-renderiza.
       Gemelo del "stale edit-state (theoretical)" ya registrado para `editing`
       — mismo fix barato, hacerlos juntos.
+
+## FF-2 — minors de review (logged 2026-07-13, no bloqueantes)
+
+- [ ] Ventana residual si el refetch del POST falla: retry vía refreshKey
+      hace setError(null) sincrónico → render transitorio sin error con data
+      stale que puede limpiar el notice antes del retry. Solo pierde
+      feedback, no corrompe estado. Causa raíz: hooks sin señal de in-flight
+      (pre-existente). Candidato whole-branch review o hardening.
+- [ ] UX: en la rama conflict el notice aparece un round-trip después
+      (tradeoff deliberado del reorden anti-race, documentado en comentario).
+- [ ] Notice verde de conflict-section persiste indefinido: sin dismiss y
+      sin clear al llegar conflictos nuevos — un "Conflicto resuelto." viejo
+      puede convivir arriba de una lista fresca de conflictos (mensaje
+      contradictorio). Fix barato: clear del notice cuando conflicts pasa de
+      vacío a poblado. Whole-branch review.
