@@ -87,7 +87,10 @@ async function postMapping(body: {
 const selectClasses =
   'flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50';
 
-type Notice = { kind: 'mapped' | 'conflict' | 'error'; message: string };
+// portalString is set ONLY on the conflict branch (FF-2 part a) — it lets the
+// self-clearing effect below target the exact string whose conflict got resolved,
+// instead of parsing it back out of `message`.
+type Notice = { kind: 'mapped' | 'conflict' | 'error'; message: string; portalString?: string };
 
 interface OutcomeHandler {
   (outcome: PostOutcome, portalString: string): void | Promise<void>;
@@ -105,6 +108,13 @@ interface DeletedHandler {
 // refetch as delete/map — not a parallel path. The row's string stays mapped, just
 // under a different SKU group after the refetch.
 interface RetargetedHandler {
+  (portalString: string): void | Promise<void>;
+}
+
+// Confirm path (FF-1): PENDING_REVIEW -> CONFIRMED via the SAME postMapping POST
+// used by Vista A, then the SAME shared refetch as delete/retarget/map. The badge
+// disappears because the refetched row comes back CONFIRMED — never optimistic.
+interface ConfirmedHandler {
   (portalString: string): void | Promise<void>;
 }
 
@@ -271,6 +281,7 @@ function MappedGroupItem({
   onOutcome,
   onDeleted,
   onRetargeted,
+  onConfirmed,
 }: {
   chain: Chain;
   group: MappedGroup;
@@ -278,6 +289,7 @@ function MappedGroupItem({
   onOutcome: OutcomeHandler;
   onDeleted: DeletedHandler;
   onRetargeted: RetargetedHandler;
+  onConfirmed: ConfirmedHandler;
 }) {
   const idBase = `map-${chain}-${group.productId}`.replace(/[^a-zA-Z0-9-]/g, '_');
   const [adding, setAdding] = useState(false);
@@ -296,6 +308,14 @@ function MappedGroupItem({
   const [editPick, setEditPick] = useState('');
   const [retargeting, setRetargeting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  // Confirm flow (FF-1): PENDING_REVIEW -> CONFIRMED. No dialog (non-destructive,
+  // reversible via "Cambiar"/"Quitar"), so `confirming` doubles as the row key AND
+  // the in-flight flag — exactly one row confirms at a time within this group.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<{ portalString: string; message: string } | null>(
+    null,
+  );
 
   async function add() {
     const portalString = value.trim();
@@ -377,6 +397,28 @@ function MappedGroupItem({
     }
   }
 
+  // Same tuple as the row being confirmed — productId comes from the row itself
+  // (never the group's, though they're equal here), so a stray retarget mid-flight
+  // can't smuggle a different SKU into the request. Reuses postMapping (the same
+  // POST Vista A uses) with status: 'CONFIRMED' explicit, per the backend contract.
+  async function confirmRow(portalString: string, productId: string) {
+    if (confirming) return;
+    setConfirming(portalString);
+    setConfirmError(null);
+    const outcome = await postMapping({ chain, portalString, productId, status: 'CONFIRMED' });
+    setConfirming(null);
+    if (outcome.kind === 'mapped') {
+      await onConfirmed(portalString);
+      return;
+    }
+    // conflict_exists is not expected in the normal single-user flow (a concurrent
+    // write could still produce it) — the fallback message below handles it defensively.
+    setConfirmError({
+      portalString,
+      message: outcome.kind === 'error' ? outcome.message : 'No se pudo confirmar (conflicto inesperado).',
+    });
+  }
+
   return (
     <li className="rounded-md border border-border bg-card/50 p-3 space-y-2">
       <p className="text-sm font-medium text-foreground">
@@ -397,6 +439,20 @@ function MappedGroupItem({
                     por verificar
                   </span>
                 )}
+                {/* "Confirmar" (FF-1): only for PENDING_REVIEW rows — CONFIRMED rows
+                    have no outstanding action here. Fires the same POST as Vista A's
+                    "Aceptar"/"Mapear", just re-targeted at this row's own tuple. */}
+                {r.status === 'PENDING_REVIEW' && (
+                  <button
+                    type="button"
+                    onClick={() => confirmRow(r.portalString, r.productId)}
+                    disabled={deleting || retargeting || confirming !== null}
+                    aria-label={`Confirmar mapeo de ${r.portalString}`}
+                    className="ml-auto text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {confirming === r.portalString ? 'Confirmando…' : 'Confirmar'}
+                  </button>
+                )}
                 {/* "Cambiar" (§11.6b): inline retarget — no ConfirmDialog, retarget
                     is reversible. Opening it resets any previous pick/error. */}
                 <button
@@ -404,11 +460,15 @@ function MappedGroupItem({
                   onClick={() => {
                     setEditError(null);
                     setEditPick('');
+                    if (confirmError?.portalString === r.portalString) setConfirmError(null);
                     setEditing(r.portalString);
                   }}
-                  disabled={deleting || retargeting}
+                  disabled={deleting || retargeting || confirming !== null}
                   aria-label={`Cambiar SKU de ${r.portalString}`}
-                  className="ml-auto text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                  className={cn(
+                    'text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50',
+                    r.status !== 'PENDING_REVIEW' && 'ml-auto',
+                  )}
                 >
                   Cambiar
                 </button>
@@ -418,15 +478,22 @@ function MappedGroupItem({
                   type="button"
                   onClick={() => {
                     setDeleteError(null);
+                    if (confirmError?.portalString === r.portalString) setConfirmError(null);
                     setPendingDelete(r.portalString);
                   }}
-                  disabled={deleting || retargeting}
+                  disabled={deleting || retargeting || confirming !== null}
                   aria-label={`Quitar mapeo de ${r.portalString}`}
                   className="text-xs text-destructive hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {removing ? 'Quitando…' : 'Quitar'}
                 </button>
               </div>
+
+              {confirmError && confirmError.portalString === r.portalString && (
+                <p role="alert" className="text-xs text-destructive">
+                  {confirmError.message}
+                </p>
+              )}
 
               {isEditing && (
                 <div className="space-y-2 rounded-md border border-border bg-card/50 p-2">
@@ -572,6 +639,28 @@ export function MappingSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
+  // FF-2 (a): a conflict notice must clear itself once ITS OWN portalString no
+  // longer has any CONFLICTED row — i.e. once it got resolved in ConflictSection
+  // (either branch: "Es éste" -> CONFIRMED, "Ninguno" -> rows deleted). Reacting to
+  // mappingsQ.data (rather than to refreshKey directly) means this only fires once
+  // fresh data has actually landed, and only clears THIS notice — a refetch caused
+  // by an unrelated mutation (upload, another row) won't have any CONFLICTED row
+  // for this string either way, so it's still safe, but the check stays scoped to
+  // this string on purpose (never an unconditional clear-on-refetch).
+  useEffect(() => {
+    if (!notice || notice.kind !== 'conflict' || !notice.portalString) return;
+    // A failed refetch leaves mappingsQ.data stale (pre-mutation or pre-resolution)
+    // — that's not evidence the conflict got resolved, so skip clearing until a
+    // refetch actually succeeds.
+    if (mappingsQ.error) return;
+    const rows = mappingsQ.data?.mappings;
+    if (!rows) return; // data not loaded yet — do not clear on absence (edge case)
+    const stillConflicted = rows.some(
+      (r) => r.portalString === notice.portalString && r.status === 'CONFLICTED',
+    );
+    if (!stillConflicted) setNotice(null);
+  }, [mappingsQ.data, mappingsQ.error, notice]);
+
   const handleOutcome = useCallback<OutcomeHandler>(
     async (outcome, portalString) => {
       if (outcome.kind === 'mapped') {
@@ -579,11 +668,20 @@ export function MappingSection({
         await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
         onMappingChange();
       } else if (outcome.kind === 'conflict') {
+        // ORDER IS MANDATORY here (FF-2 fix pass): refetch BEFORE setNotice. The
+        // clear-effect below reads mappingsQ.data on every render this notice is
+        // conflict-kind. If setNotice ran first, the render it triggers would still
+        // see PRE-mutation data (no CONFLICTED row for this string yet — the POST
+        // hasn't been reflected by a refetch) and the effect would immediately clear
+        // the notice we just set. Refetching first guarantees that by the time the
+        // notice exists, mappingsQ.data already contains the CONFLICTED rows, so the
+        // effect only clears it once a LATER resolution actually removes them.
+        await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
         setNotice({
           kind: 'conflict',
+          portalString,
           message: `"${portalString}" generó un conflicto. Resolvelo en la sección "En conflicto".`,
         });
-        await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
         onMappingChange();
       } else {
         setNotice({ kind: 'error', message: outcome.message });
@@ -609,6 +707,18 @@ export function MappingSection({
   const handleRetargeted = useCallback<RetargetedHandler>(
     async (portalString) => {
       setNotice({ kind: 'mapped', message: `"${portalString}" cambiado de SKU.` });
+      await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
+      onMappingChange();
+    },
+    [suggestionsQ, mappingsQ, onMappingChange],
+  );
+
+  // Confirm (FF-1) reuses the SAME shared refetch + onMappingChange as
+  // delete/retarget/map — NOT a parallel path. The "por verificar" badge
+  // disappears because the refetched row comes back CONFIRMED.
+  const handleConfirmed = useCallback<ConfirmedHandler>(
+    async (portalString) => {
+      setNotice({ kind: 'mapped', message: `"${portalString}" confirmado.` });
       await Promise.all([suggestionsQ.refetch(), mappingsQ.refetch()]);
       onMappingChange();
     },
@@ -729,6 +839,7 @@ export function MappingSection({
                     onOutcome={handleOutcome}
                     onDeleted={handleDeleted}
                     onRetargeted={handleRetargeted}
+                    onConfirmed={handleConfirmed}
                   />
                 ))}
               </ul>
