@@ -164,3 +164,67 @@ Service-design notes (document-or-decide; no action unless a future flow trips t
 - [ ] **Nota documental:** la distinción null-vs-0 a nivel agregado es
       estructural (SUM no distingue); el pin vive en los `toBeNull()`
       per-row de getOneTableRows. Sin acción.
+
+## B-2 — pre-registrados (logged 2026-07-14)
+
+- [ ] **Unificación del helper de precio**: `lib/prices.ts` (nuevo en B-2) nace
+      con regex + cota copiadas VERBATIM de las dos copias module-local de
+      parametros (`app/api/parametros/skus/route.ts` y `skus/[id]/route.ts`).
+      Migrar ambas rutas al helper compartido en whole-branch review — no-op
+      mecánico por diseño (byte-compatibles).
+- [ ] **Document-or-decide: decimales ilimitados en la validación de precio.**
+      La regex `/^\d+(\.\d+)?$/` acepta decimales ilimitados y Postgres
+      redondea silencioso a 2 en numeric(12,2) ("10.999" → 11.00 sin error ni
+      aviso). Comportamiento pre-existente en parametros, heredado a sabiendas
+      por B-2 (lib/prices.ts). Decidir en whole-branch review: capar a 2
+      decimales en validación, o documentar como aceptado.
+      **AMPLIADO por review quality B-2 (Q-6):** el redondeo puede DESBORDAR,
+      no solo redondear — "9999999999.995" pasa la cota (`Number < 10^10`)
+      pero Postgres redondea a 10000000000.00 → 13 dígitos → numeric field
+      overflow → P2000 → 500 crudo. Mismo hueco byte-compatible en las copias
+      de parametros. Decidir con el cuadro completo.
+
+## B-2 — minors de review (logged 2026-07-14, no bloqueantes)
+
+Carril spec (1):
+
+- [ ] Guard extra no pedido por el brief: check de tipo de `productId`
+      (no-string/vacío → 400 INVALID_BODY) en price-overrides PUT, insertado
+      entre "4 keys" y "chain". Declarado en el self-report; no reordena los
+      guards especificados y evita un 500 de Prisma. Sin acción — registrado
+      solo como desvío documentado.
+
+Carril quality (Q-2 a Q-5, Q-7, Q-8; Q-1 fue a fix pass; Q-6 amplió la nota
+de decimales en la sección "B-2 — pre-registrados"):
+
+- [ ] **Q-2 — race de refetch compartido entre saves de filas distintas**
+      (price-override-section + useChainPriceOverrides): dos saves dentro de
+      un RTT pueden dejar el estado del hook en la respuesta stale (la data
+      persistida es correcta; se auto-repara al próximo refetch/remount).
+      Deuda de patrón compartida con los hooks hermanos sin señal de
+      in-flight (misma familia que los minors de FF-1/FF-2). Whole-branch
+      review o hardening.
+- [ ] **Q-3 — dirty perpetuo por canonicalización Decimal**: input "80.00"
+      contra server "80" queda dirty tras save exitoso (deps del useEffect no
+      cambian → el input no se re-sincroniza) → "Guardar" habilitado
+      conviviendo con "Guardado ✓". Cosmético e idempotente. Fix barato:
+      re-sync incondicional al resolver save() o comparación normalizada.
+      Nota para el smoke de Michael: es observable en UI.
+- [ ] **Q-4 — comentario de éxito promete más de lo que garantiza**
+      (price-override-section:447-449): refetch del hook nunca rechaza, así
+      que el ✓ puede setearse sin re-sync real; en ese caso el error de
+      sección desmonta la lista y el ✓ no se ve. Comportamiento aceptable,
+      comentario engañoso — ajustar cuando se toque el archivo.
+- [ ] **Q-5 — TOCTOU ownership→upsert en price-overrides PUT**: Product
+      borrado entre findFirst y upsert → P2003 → 500 crudo. Mismo
+      check-then-act que mappings POST (paridad deliberada), ventana
+      milimétrica. Sin acción en B-2; candidato al sweep de error
+      codes/classes ya registrado para las rutas.
+- [ ] **Q-7 — parsePriceInput acepta arrays de un elemento**
+      (`String([5])` → "5"): coerción heredada verbatim de parametros,
+      paridad deliberada. Endurecer a `string | number | null` cuando se
+      unifique el helper (entrada ya registrada arriba).
+- [ ] **Q-8 — gap de test: precio numérico (no-string) en el PUT**: la ruta
+      acepta `purchasePrice: 12.34` por diseño pero ningún test lo pinnea;
+      una refactor a string-only rompería clientes numéricos sin detección.
+      Una línea de test. Whole-branch review.

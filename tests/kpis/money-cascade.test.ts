@@ -24,6 +24,7 @@ const TEST_EMAIL = 'b5-money-cascade@test.local';
 //   P3: base 30.00, no override
 //   P4: no base, no override
 //   P5: no base, SORIANA override 25.00
+//   P6: base 60.00, SORIANA override purchase-only (purchase 99.00, sale NULL)
 //
 //   Row A: SORIANA P1  amount 1234.56, units 10 → FILE wins → 1234.56 (not 800)
 //   Row B: SORIANA P2  amount NULL,    units 10 → OVERRIDE  → 700.00
@@ -35,14 +36,17 @@ const TEST_EMAIL = 'b5-money-cascade@test.local';
 //          (pins LEFT JOIN — an INNER would silently drop this row)
 //   Row G: AMAZON  P2  amount NULL,    units 10 → BASE → 400.00 (override is
 //          SORIANA-scoped; pins the ppo.chain = sd.chain join condition)
+//   Row H: SORIANA P6  amount NULL,    units 10 → BASE → 600.00 (purchase-only
+//          override row EXISTS but its salePrice is NULL — a legal state per
+//          schema — so the sale cascade must fall through to base, B5-2)
 //
-//   SORIANA total = 1234.56 + 700 + 300 + 500 = 2734.56
+//   SORIANA total = 1234.56 + 700 + 300 + 500 + 600 = 3334.56
 //   AMAZON  total = 400
-//   Grand   total = 3134.56 · units = 10+10+10+10+5+10 = 55 (E units NULL)
+//   Grand   total = 3734.56 · units = 10+10+10+10+5+10+10 = 65 (E units NULL)
 //
 // Previous period 2026-04 (pins cascade on the PREV side of getDashboardKpis):
 //   SORIANA P2 amount NULL, units 4 → override → 280.00
-//   variationPct = (3134.56 - 280) / 280 * 100 ≈ 1019.4857
+//   variationPct = (3734.56 - 280) / 280 * 100 ≈ 1233.7714
 describe('§7 money cascade (B-1) — integration against dev DB', () => {
   let clientId: string;
   let userId: string;
@@ -69,12 +73,18 @@ describe('§7 money cascade (B-1) — integration against dev DB', () => {
     const p5 = await db.product.create({
       data: { clientId, nameStandard: 'CASCADE P5', skuCode: 'B5M-P5' },
     });
+    const p6 = await db.product.create({
+      data: { clientId, nameStandard: 'CASCADE P6', skuCode: 'B5M-P6', salePriceBase: '60.00' },
+    });
 
     await db.productPriceOverride.createMany({
       data: [
         { productId: p1.id, chain: 'SORIANA' as Chain, salePrice: '80.00' },
         { productId: p2.id, chain: 'SORIANA' as Chain, salePrice: '70.00' },
         { productId: p5.id, chain: 'SORIANA' as Chain, salePrice: '25.00' },
+        // Purchase-only override (legal per schema): salePrice NULL must make
+        // the sale cascade fall through to base, not to NULL (B5-2).
+        { productId: p6.id, chain: 'SORIANA' as Chain, purchasePrice: '99.00', salePrice: null },
       ],
     });
 
@@ -127,6 +137,7 @@ describe('§7 money cascade (B-1) — integration against dev DB', () => {
         mkRow({ chain: 'SORIANA', productId: p5.id, portalRawProduct: 'B5M-ROW-E', storeId: '001', year: 2026, month: 5, salesUnits: null, salesAmountMxn: null }),
         mkRow({ chain: 'SORIANA', productId: null,  portalRawProduct: 'B5M-ROW-F', storeId: '001', year: 2026, month: 5, salesUnits: 5,  salesAmountMxn: 500 }),
         mkRow({ chain: 'AMAZON',  productId: p2.id, portalRawProduct: 'B5M-ROW-G', storeId: null,  year: 2026, month: 5, salesUnits: 10, salesAmountMxn: null }),
+        mkRow({ chain: 'SORIANA', productId: p6.id, portalRawProduct: 'B5M-ROW-H', storeId: '001', year: 2026, month: 5, salesUnits: 10, salesAmountMxn: null }),
       ],
     });
 
@@ -167,6 +178,9 @@ describe('§7 money cascade (B-1) — integration against dev DB', () => {
       expect(byRaw['B5M-ROW-F'].salesAmountMxn).toBeCloseTo(500, 2);
       // Override is chain-scoped: AMAZON row for P2 falls to base (40 × 10).
       expect(byRaw['B5M-ROW-G'].salesAmountMxn).toBeCloseTo(400, 2);
+      // Purchase-only override row: salePrice NULL → cascade FALLS TO BASE
+      // (60 × 10), not to NULL — the row's existence must not short-circuit.
+      expect(byRaw['B5M-ROW-H'].salesAmountMxn).toBeCloseTo(600, 2);
     });
   });
 
@@ -180,9 +194,10 @@ describe('§7 money cascade (B-1) — integration against dev DB', () => {
       });
       const byChain = Object.fromEntries(rows.map((r) => [r.chain, r]));
 
-      // 1234.56 (file) + 700 (override) + 300 (base) + 500 (unmapped file) =
-      // 2734.56 — D and E contribute nothing (NULL, never 0).
-      expect(byChain.SORIANA.salesAmountMxn).toBeCloseTo(2734.56, 2);
+      // 1234.56 (file) + 700 (override) + 300 (base) + 500 (unmapped file) +
+      // 600 (purchase-only override → base) = 3334.56 — D and E contribute
+      // nothing (NULL, never 0).
+      expect(byChain.SORIANA.salesAmountMxn).toBeCloseTo(3334.56, 2);
       // AMAZON uses base (override is SORIANA-only): 400.
       expect(byChain.AMAZON.salesAmountMxn).toBeCloseTo(400, 2);
     });
@@ -194,7 +209,7 @@ describe('§7 money cascade (B-1) — integration against dev DB', () => {
       const find = (chain: Chain, y: number, m: number) =>
         rows.find((r) => r.chain === chain && r.periodYear === y && r.periodMonth === m);
 
-      expect(find('SORIANA', 2026, 5)?.salesAmountMxn).toBeCloseTo(2734.56, 2);
+      expect(find('SORIANA', 2026, 5)?.salesAmountMxn).toBeCloseTo(3334.56, 2);
       expect(find('AMAZON', 2026, 5)?.salesAmountMxn).toBeCloseTo(400, 2);
       // 2026-04 point is pure override-derived (4 × 70 = 280).
       expect(find('SORIANA', 2026, 4)?.salesAmountMxn).toBeCloseTo(280, 2);
@@ -208,8 +223,8 @@ describe('§7 money cascade (B-1) — integration against dev DB', () => {
         { clientId, userId, periodYear: 2026, periodMonth: 5 },
         DEFAULT_CUTS,
       );
-      expect(kpis.salesAmountMxn).toBeCloseTo(3134.56, 2);
-      expect(kpis.salesUnits).toBe(55);
+      expect(kpis.salesAmountMxn).toBeCloseTo(3734.56, 2);
+      expect(kpis.salesUnits).toBe(65);
     });
 
     it('cascades the PREVIOUS aggregate so variationPct reflects §7 on both sides', async () => {
@@ -221,7 +236,7 @@ describe('§7 money cascade (B-1) — integration against dev DB', () => {
         DEFAULT_CUTS,
       );
       expect(kpis.variationPct).not.toBeNull();
-      expect(kpis.variationPct).toBeCloseTo(((3134.56 - 280) / 280) * 100, 3);
+      expect(kpis.variationPct).toBeCloseTo(((3734.56 - 280) / 280) * 100, 3);
     });
 
     it('prev-period cascade sanity: 2026-04 as its own current period sums 280', async () => {
