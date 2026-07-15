@@ -102,17 +102,42 @@ Hay un worm activo en npm desde mayo 11, 2026 ("Mini Shai-Hulud", CVE-2026-45321
 
 ## Modo de trabajo
 
-**Subagent-driven con reviews dobles.** Cada task (Sprint o Gate):
+**Subagent-driven, protocolo vigente (Fase 2, bloque B en adelante).**
 
-1. Implementer subagent ejecuta el task. Prompt DEBE incluir literal la sección de mitigaciones supply chain.
-2. Spec compliance reviewer subagent valida contra el spec.
-3. Code quality reviewer subagent valida calidad técnica.
-4. Post-task auto-verification mandatoria (3 comandos en sección supply chain).
-5. Commit con mensaje descriptivo (`feat(sX): ...` o `feat(gX): ...`).
+Por task:
+1. Brief/plan del task filtrado por el sparring partner de Michael ANTES de
+   dispatchar (él lo manda ya filtrado o confirma el go).
+2. Implementer subagent FRESCO por task, prompt con el prefijo literal de la
+   sección supply-chain de este archivo. El implementer PARA en GREEN con
+   árbol sucio: NO git add, NO commit, NO push. Reporte en
+   .superpowers/sdd/<task>-report.md.
+3. Doble review CIEGA en carriles separados (spec compliance + code quality),
+   agentes distintos, ninguno ve el output del otro. Nunca se fusionan.
+4. Fix pass: hallazgos van a un fixer; re-review SOLO del carril que encontró
+   el hallazgo (la ceguera es entre carriles, no entre pases).
+5. Diff crudo completo + ambos outputs de review van a Michael (que los pasa
+   por su filtro externo). Resúmenes no reemplazan al diff.
+6. Michael autoriza con "commiteá". Recién ahí el controller commitea.
+7. Minors de review que no bloquean → al ledger tracked
+   (.superpowers/sdd/b4-followups.md, git add -f SIEMPRE — está gitignored
+   aunque tracked; no confiar en check-ignore para este path) en el mismo
+   commit, nunca al diff.
 
-**Sprints** son self-verifiable con tests automáticos (parsers, normalizer, KPIs). Subagent puede ejecutarlos directo.
+Gates: ESTRICTO (diff a Michael ANTES de commit — data layer, queries de
+KPIs, alto blast-radius) vs UI GATE (cierre = smoke visual de Michael, no CI).
 
-**Gates** requieren revisión humana visual (UI, layout, dashboard). El usuario abre el navegador y verifica contra el checklist de §7.2.1 del spec. Subagent puede preparar el código pero el usuario aprueba el gate.
+Reglas operativas permanentes:
+- Merges: SOLO Michael (gh pr merge N --squash --delete-branch).
+- Operaciones destructivas de git: SOLO Michael en su terminal;
+  git branch --show-current antes de todo reset/force/delete.
+- Cero procesos huérfanos antes de dispatchar (ps aux | grep -E
+  "vitest|pnpm test"); jamás dos procesos de test contra la Neon dev DB
+  compartida; avisar a Michael antes de correr la suite (puede tener
+  pnpm dev activo).
+- Prompts a subagents: autocontenidos o apuntando a archivos del repo. Las
+  sesiones se /clear-ean; nada vive en memoria entre bloques.
+- Mensajes de commit sin referencias falsas de spec; tasks post-plan citan
+  el ledger.
 
 ### Operaciones destructivas de DB
 
