@@ -66,12 +66,14 @@ Items #4-#7 → fold into the B4 whole-branch final review.
 
 ## Task 12 smoke — defectos no bloqueantes (2026-07-08, gate humano)
 
-- [ ] **PENDING_REVIEW sin salida en UI:** un mapping flaggeado "por verificar" no puede
+- [x] **(tachado retroactivo: cerrados por FF-1/FF-2, commits 61ba7f3/83783c3; drift
+      documentado en handoff session-b4-followups-end.md)** **PENDING_REVIEW sin salida en UI:** un mapping flaggeado "por verificar" no puede
       confirmarse; hoy solo quitar + re-mapear. El backend ya lo soporta (assignMapping
       idempotente: mismo string + mismo SKU + status CONFIRMED actualiza la fila). Fix
       UI-only: acción "Confirmar" en filas PENDING_REVIEW de Vista B → POST existente.
       **Fast-follow post-merge de B4.**
-- [ ] **Notice de conflicto stale en mapping-section:** el aviso "X generó un conflicto..."
+- [x] **(tachado retroactivo: cerrados por FF-1/FF-2, commits 61ba7f3/83783c3; drift
+      documentado en handoff session-b4-followups-end.md)** **Notice de conflicto stale en mapping-section:** el aviso "X generó un conflicto..."
       persiste tras resolver el conflicto en conflict-section hasta refresh manual — el
       refetch unificado actualiza data pero no limpia el notice local. Además falta
       feedback de éxito al resolver ("conflicto resuelto" con el patrón de notice verde
@@ -149,3 +151,16 @@ Service-design notes (document-or-decide; no action unless a future flow trips t
       puede convivir arriba de una lista fresca de conflictos (mensaje
       contradictorio). Fix barato: clear del notice cuando conflicts pasa de
       vacío a poblado. Whole-branch review.
+
+## B-1 — minors de review (logged 2026-07-14, no bloqueantes)
+
+- [ ] **Pin faltante: override con salePrice NULL** (purchase-only, estado
+      legal per schema `Decimal?`) debe caer a base. La cascada lo maneja
+      (units × NULL → NULL → COALESCE sigue) pero ningún seed lo pinnea.
+      DESTINO: test obligatorio dentro de B-2 (su UI hace alcanzable el
+      estado). Una fila de seed extra en money-cascade.test.ts.
+- [ ] **Assertion redundante en money-cascade.test.ts:223** (`not.toBeNull()`
+      antes de `toBeCloseTo`). Cosmético; whole-branch review.
+- [ ] **Nota documental:** la distinción null-vs-0 a nivel agregado es
+      estructural (SUM no distingue); el pin vive en los `toBeNull()`
+      per-row de getOneTableRows. Sin acción.
