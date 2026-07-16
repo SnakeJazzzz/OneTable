@@ -100,6 +100,11 @@
       usuario del chat IA** (`/api/ai/chat`): cada mensaje dispara hasta 5
       steps de modelo + queries; sin límite por usuario el costo es
       open-ended. Diseñar junto con el resto de límites de prod.
+- [ ] (origen: review quality T2 B5) **Cap de TAMAÑO en el chat IA**
+      (`/api/ai/chat`): el cap C1 acota CANTIDAD de mensajes (30) pero no
+      TAMAÑO por mensaje — un mensaje de megabytes pasa entero al modelo.
+      Evaluar cap de bytes/chars por mensaje o por ventana cuando se haga
+      el hardening del chat (junto con el rate limiting del ítem anterior).
 
 ## Infra de tests
 
@@ -144,6 +149,16 @@
       `160 84% 39%` del brainstorm quedó descartado) y el bloque `.dark`
       inexistente (hoy dark-first vía `:root`, sin modo claro). Solo si/
       cuando haya pasada de identidad visual; no es deuda de la beta.
+
+
+- [ ] (origen: smoke T2 B5, observación de producto, 2026-07-16)
+      **`getDefaultPeriod` prefiere el período más reciente con ≥2 cadenas
+      sobre uno MÁS reciente con 1 sola.** Observado en el smoke: enero 2026
+      elegido sobre marzo 2026 (que solo tiene Soriana). Comportamiento POR
+      DISEÑO (S12.1), correcto para el dashboard; para el chatbot ("¿cuánto
+      vendí este mes?") puede sorprender — el usuario puede esperar el mes
+      calendario más reciente con data, no el más rico. Re-evaluar con uso
+      real de VIKS. Pregunta de producto, NO bug.
 
 ## Pendiente-por-archivo
 
