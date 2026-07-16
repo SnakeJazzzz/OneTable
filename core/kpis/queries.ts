@@ -1,5 +1,55 @@
-import type { PrismaClient, Chain } from '@prisma/client';
+import { Prisma, type PrismaClient, type Chain } from '@prisma/client';
 import { classifyAlert, type AlertStatus, type ThresholdCuts } from '../alerts/classify';
+
+// =====================================================================
+// §7 money cascade — shared SQL fragments (B-1)
+// =====================================================================
+//
+// Peso amount resolution per SelloutData row (spec §7), applied at query
+// time — never at insert:
+//   1. sd."salesAmountMxn"                 — real amount from the portal file
+//   2. sd."salesUnits" * ppo."salePrice"   — per-chain override price
+//   3. sd."salesUnits" * p."salePriceBase" — product base price
+//   4. NULL                                — nothing fabricated; UI shows "—"
+//
+// Alias contract (FIXED): every consumer query MUST expose the aliases
+//   sd  → "SelloutData"
+//   ppo → "ProductPriceOverride"
+//   p   → "Product"
+// Place SALES_CASCADE_JOINS right after `FROM "SelloutData" sd` to satisfy
+// ppo/p. Both fragments are Prisma.sql tagged templates interpolated into
+// $queryRaw parents (bound-params precedent: core/normalizer/upsert.ts §4.8).
+//
+// Decimal, not float: derived branches multiply in numeric (salesUnits is
+// int → explicit ::numeric cast; prices are already Decimal(12,2)) and
+// ROUND(..., 2) per branch BEFORE any SUM. The file amount (branch 1)
+// passes through raw — it is already Decimal(12,2). ::float8 lives only at
+// the transport edge (the existing SUM(...)::float8 / per-row ::float8).
+//
+// NULL propagation: salesUnits NULL → both derived branches NULL → COALESCE
+// falls through on its own (no redundant CASEs). If all three levels are
+// NULL the result is NULL; aggregates ignore it via SUM, same as before.
+//
+// SCOPE (B-1): only the SALE amount is cascaded. purchasesAmountMxn,
+// inventoryAmountCostMxn/inventoryAmountPriceMxn and purchasePrice /
+// purchasePriceBase intentionally gain no consumers here — the purchase
+// cascade is out of B-1 scope by decision.
+const SALES_AMOUNT_CASCADE = Prisma.sql`COALESCE(
+  sd."salesAmountMxn",
+  ROUND(sd."salesUnits"::numeric * ppo."salePrice", 2),
+  ROUND(sd."salesUnits"::numeric * p."salePriceBase", 2)
+)`;
+
+// LEFT JOINs, NEVER INNER (§8.4): rows with productId NULL (unmapped /
+// conflicted) must keep contributing their file amount to totals not
+// grouped by SKU. An INNER JOIN silently drops them — a data bug, not a
+// detail. Both joined tables match at most one row (ppo unique on
+// (productId, chain); p by PK), so there is no row fan-out.
+const SALES_CASCADE_JOINS = Prisma.sql`
+  LEFT JOIN "ProductPriceOverride" ppo
+    ON ppo."productId" = sd."productId" AND ppo."chain" = sd."chain"
+  LEFT JOIN "Product" p ON p."id" = sd."productId"
+`;
 
 // =====================================================================
 // Types
@@ -98,23 +148,28 @@ export async function getDashboardKpis(
   // RIESGO} flags the entire SKU as alerted. H1: `<= 0` (was `= 0`) treats
   // negative inventory adjustments as SIN_STOCK — mirrors classifyAlert(JS).
   const [current, prev, alerts] = await Promise.all([
+    // §7 cascade applies to BOTH the current and the previous aggregate.
+    // Wiring only the current side would skew variationPct (cascaded current
+    // vs raw previous) — a silent bug.
     db.$queryRaw<Array<{ sales_amount: number | null; sales_units: bigint | null }>>`
       SELECT
-        SUM("salesAmountMxn")::float8 AS sales_amount,
-        SUM("salesUnits")::bigint    AS sales_units
-      FROM "SelloutData"
-      WHERE "clientId"   = ${clientId}
-        AND "userId"     = ${userId}
-        AND "periodYear" = ${periodYear}
-        AND "periodMonth"= ${periodMonth}
+        SUM(${SALES_AMOUNT_CASCADE})::float8 AS sales_amount,
+        SUM(sd."salesUnits")::bigint         AS sales_units
+      FROM "SelloutData" sd
+      ${SALES_CASCADE_JOINS}
+      WHERE sd."clientId"   = ${clientId}
+        AND sd."userId"     = ${userId}
+        AND sd."periodYear" = ${periodYear}
+        AND sd."periodMonth"= ${periodMonth}
     `,
     db.$queryRaw<Array<{ sales_amount: number | null }>>`
-      SELECT SUM("salesAmountMxn")::float8 AS sales_amount
-      FROM "SelloutData"
-      WHERE "clientId"   = ${clientId}
-        AND "userId"     = ${userId}
-        AND "periodYear" = ${prevYear}
-        AND "periodMonth"= ${prevMonth}
+      SELECT SUM(${SALES_AMOUNT_CASCADE})::float8 AS sales_amount
+      FROM "SelloutData" sd
+      ${SALES_CASCADE_JOINS}
+      WHERE sd."clientId"   = ${clientId}
+        AND sd."userId"     = ${userId}
+        AND sd."periodYear" = ${prevYear}
+        AND sd."periodMonth"= ${prevMonth}
     `,
     // COUNT(DISTINCT productId) naturally excludes unmapped (productId NULL).
     // daysOfInv computed inline: inv/sales*30, comparing < cuts.riesgo covers
@@ -183,10 +238,12 @@ export async function getSalesTrend(
       sd.chain                                 AS chain,
       sd."periodYear"                          AS "periodYear",
       sd."periodMonth"                         AS "periodMonth",
-      SUM(sd."salesAmountMxn")::float8         AS sales_amount,
+      SUM(${SALES_AMOUNT_CASCADE})::float8     AS sales_amount,
       SUM(sd."salesUnits")::bigint             AS sales_units,
       SUM(sd."inventoryUnits")::bigint         AS inventory_units
-    FROM "SelloutData" sd, latest
+    FROM "SelloutData" sd
+    ${SALES_CASCADE_JOINS}
+    CROSS JOIN latest
     WHERE sd."clientId" = ${clientId}
       AND sd."userId"   = ${userId}
       AND latest.k IS NOT NULL
@@ -221,16 +278,17 @@ export async function getSalesByChainForPeriod(
     }>
   >`
     SELECT
-      chain                              AS chain,
-      SUM("salesAmountMxn")::float8      AS sales_amount,
-      SUM("salesUnits")::bigint          AS sales_units
-    FROM "SelloutData"
-    WHERE "clientId"   = ${clientId}
-      AND "userId"     = ${userId}
-      AND "periodYear" = ${periodYear}
-      AND "periodMonth"= ${periodMonth}
-    GROUP BY chain
-    ORDER BY chain ASC
+      sd.chain                              AS chain,
+      SUM(${SALES_AMOUNT_CASCADE})::float8  AS sales_amount,
+      SUM(sd."salesUnits")::bigint          AS sales_units
+    FROM "SelloutData" sd
+    ${SALES_CASCADE_JOINS}
+    WHERE sd."clientId"   = ${clientId}
+      AND sd."userId"     = ${userId}
+      AND sd."periodYear" = ${periodYear}
+      AND sd."periodMonth"= ${periodMonth}
+    GROUP BY sd.chain
+    ORDER BY sd.chain ASC
   `;
 
   return rows.map((r) => ({
@@ -470,10 +528,10 @@ export async function getOneTableRows(
       sd."periodMonth"                                   AS period_month,
       sd."salesUnits"::bigint                            AS sales_units,
       sd."salesUnitsEstimated"                           AS sales_units_estimated,
-      sd."salesAmountMxn"::float8                        AS sales_amount_mxn,
+      (${SALES_AMOUNT_CASCADE})::float8                  AS sales_amount_mxn,
       sd."inventoryUnits"                                AS inventory_units
     FROM "SelloutData" sd
-    LEFT JOIN "Product" p ON p.id = sd."productId"
+    ${SALES_CASCADE_JOINS}
     WHERE sd."clientId"   = ${clientId}
       AND sd."userId"     = ${userId}
       AND sd."periodYear" = ${periodYear}

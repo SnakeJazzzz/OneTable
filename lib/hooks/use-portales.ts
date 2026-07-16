@@ -243,3 +243,57 @@ export function useChainConflicts(chain: Chain): UseChainConflictsResult {
 
   return { data, loading, error, refetch };
 }
+
+// ---- Chain Price Overrides ----
+// Consumed by PriceOverrideSection (B5-2). Deliberately NOT wired to the
+// card's refreshKey: prices don't change through mapping/upload/conflict
+// mutations, and the catalog is edited on another page (Parámetros), so a
+// remount on navigation is enough to pick up catalog changes.
+
+export interface PriceOverrideRow {
+  productId: string;
+  skuCode: string;
+  nameStandard: string;
+  purchasePriceBase: string | null;
+  salePriceBase: string | null;
+  override: { purchasePrice: string | null; salePrice: string | null } | null;
+}
+
+export interface ChainPriceOverridesData {
+  rows: PriceOverrideRow[];
+}
+
+export interface UseChainPriceOverridesResult {
+  data: ChainPriceOverridesData | null;
+  loading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
+
+export function useChainPriceOverrides(chain: Chain): UseChainPriceOverridesResult {
+  const [data, setData] = useState<ChainPriceOverridesData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/portales/price-overrides?chain=${chain}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Price overrides request failed (${res.status})`);
+      setData((await res.json()) as ChainPriceOverridesData);
+    } catch (err) {
+      console.error('[useChainPriceOverrides] fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar precios');
+    } finally {
+      setLoading(false);
+    }
+  }, [chain]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { data, loading, error, refetch };
+}

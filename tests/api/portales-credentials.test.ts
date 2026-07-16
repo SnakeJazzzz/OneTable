@@ -45,8 +45,8 @@ describe('PortalCredential write contract', () => {
     expect(row.hasPasswordPending).toBe(true);
 
     // (d) The schema has no `password` column — this is the §6.1 guarantee. If a
-    // password column is ever added, this destructures to undefined and the
-    // assertion documents the absence.
-    expect((row as Record<string, unknown>).password).toBeUndefined();
+    // password column is ever added, it shows up in the row's keys and this
+    // assertion fails loudly (no cast needed).
+    expect(Object.keys(row)).not.toContain('password');
   });
 });

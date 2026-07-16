@@ -90,10 +90,11 @@ docs/             specs, plans, handoffs, ADRs
 
 ## Docs clave
 
+- **Mapa completo de docs/ (activo vs archivo):** `docs/README.md`.
 - **Contexto operativo y reglas:** `CLAUDE.md` (raíz).
 - **Decisiones y estado autoritativo de Fase 2:** `docs/specs/onetable-fase2-spec.md`.
 - **Draft de Fase 3:** `docs/specs/onetable-fase3-spec-draft.md`.
-- **Histórico Fase 1 (referencia):** `docs/specs/onetable-fase1-spec.md` + `docs/plans/onetable-fase1-plan.md`.
+- **Histórico Fase 1 (referencia):** `docs/archive/fase1/onetable-fase1-spec.md` + `docs/archive/fase1/onetable-fase1-plan.md`.
 - **SRS legacy:** `docs/specs/onetable-srs-v1.docx` — el proyecto se llamaba "Scopium"; las referencias a ese nombre se ignoran.
 
 ## Cliente

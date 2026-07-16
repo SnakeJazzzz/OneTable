@@ -190,6 +190,29 @@ describe('POST /api/data/upload', () => {
     expect(body.perFile[0].error).toMatch(/chain field missing/);
   });
 
+  it('returns per-file error naming the misuse when chain is sent as a File (B5-3 A5)', async () => {
+    mockSession();
+    const fakeBuffer = Buffer.from('not really xlsx', 'utf-8');
+    // Hand-built form: `chain` is appended WITH a filename, which makes it a
+    // File entry — a caller bug distinct from an absent field. The route must
+    // say so instead of the misleading "chain field missing".
+    const form = new FormData();
+    form.append(
+      'files',
+      new Blob([new Uint8Array(fakeBuffer)], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+      'report.xlsx',
+    );
+    form.append('chain', new Blob(['SORIANA'], { type: 'text/plain' }), 'chain.txt');
+    form.append('fileType', 'MIXED');
+    const res = await POST(new Request('http://test/api/data/upload', { method: 'POST', body: form }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('ALL_FILES_FAILED');
+    expect(body.perFile[0].error).toMatch(/chain field must be a plain text value, not a file/);
+  });
+
   it('returns 400 when ALL files have unmatched filenames', async () => {
     mockSession();
     const fakeBuffer = Buffer.from('not really xlsx', 'utf-8');

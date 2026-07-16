@@ -5,6 +5,7 @@ import type { Chain } from '@prisma/client';
 import { Card } from '@/components/ui/card';
 import { useChainCounts } from '@/lib/hooks/use-portales';
 import { CredentialsForm } from './credentials-form';
+import { PriceOverrideSection } from './price-override-section';
 import { ChainUpload } from './chain-upload';
 import { MappingSection } from './mapping-section';
 import { ConflictSection } from './conflict-section';
@@ -79,6 +80,12 @@ export function ChainCard({ chain, initialUsername, credLoading }: ChainCardProp
           <CredentialsForm chain={chain} initialUsername={initialUsername} />
         )}
       </section>
+
+      {/* B5-2: per-chain price overrides (§3.2.4). Owns its own section heading
+          and collapses to a summary line. Deliberately outside the refreshKey
+          acople: no other section reads prices, and price mutations don't
+          affect mappings/conflicts/counts. */}
+      <PriceOverrideSection chain={chain} />
 
       {/* Upload */}
       <section className="space-y-2">

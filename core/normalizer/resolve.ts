@@ -256,6 +256,13 @@ export async function deleteMapping(
     //    shared primitive (portalRawProduct filter = multi-value footgun guard).
     //    The count of reverted rows IS the presence-of-data signal for step 4
     //    (no extra query needed).
+    //
+    //    SERVICE-DESIGN NOTE: the presence signal is productId-SCOPED — rows of
+    //    this portalString whose productId is NULL don't count, so a string with
+    //    only-NULL rows yields count 0 → no requeue. Unreachable in current
+    //    flows (assignMapping backfills on create; normalize attributes
+    //    CONFIRMED mappings at insert), it becomes real only if a future flow
+    //    creates mappings without backfilling.
     const reverted = await revertSelloutProductId(tx, {
       clientId: args.clientId, chain: args.chain, portalString: args.portalString, productId: args.productId,
     });
@@ -326,9 +333,15 @@ export async function retargetMapping(
     if (existing.status === 'CONFLICTED') {
       throw new Error('retargetMapping: cannot retarget a CONFLICTED mapping; resolve it via the conflict UI');
     }
+    //    PLACEMENT: the no-op guard runs after the mapping findFirst (one DB
+    //    check) and BEFORE the target check — deliberate error precedence:
+    //    a missing mapping answers not-found (route → 404) first.
     if (args.newProductId === args.oldProductId) {
       throw new Error('retargetMapping: newProductId equals oldProductId (no-op retarget is not allowed)');
     }
+    //    Fetching the full Product row (no `select`) is accepted here;
+    //    `select: { id: true }` would suffice, but no logic changes in this
+    //    sweep (B5-3, comment-only).
     const target = await tx.product.findFirst({
       where: { id: args.newProductId, clientId: args.clientId },
     });

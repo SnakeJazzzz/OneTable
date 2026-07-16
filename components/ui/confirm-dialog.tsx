@@ -13,6 +13,8 @@ export interface ConfirmDialogProps {
   /** Optional error text rendered between description and buttons (e.g. from a failed action). */
   errorMessage?: string | null;
   loading?: boolean;
+  /** Confirm-button label while loading. Defaults to 'Borrando…' (the original callers delete). */
+  loadingLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -25,6 +27,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancelar',
   errorMessage,
   loading,
+  loadingLabel = 'Borrando…',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -94,7 +97,7 @@ export function ConfirmDialog({
             {cancelLabel}
           </Button>
           <Button variant="destructive" onClick={onConfirm} disabled={loading}>
-            {loading ? 'Borrando…' : confirmLabel}
+            {loading ? loadingLabel : confirmLabel}
           </Button>
         </div>
       </div>
