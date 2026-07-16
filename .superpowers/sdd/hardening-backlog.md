@@ -34,6 +34,18 @@
       de precio numérico reusa el fixture `pUpdate` y deja muerta la rama
       create del test de upsert si se reordena. Desacoplar fixtures cuando
       se vuelva a tocar el archivo (tests/api/portales-price-overrides.test.ts).
+- [ ] (origen: review quality T1 B5) **Spread de `input` en los execute de
+      `core/ai/tools/` propaga claves no declaradas** hacia los params de
+      query si se bypassea la validación del SDK. Defensa de tercera capa:
+      construir los params explícitamente por clave. Hoy inocuo — los
+      schemas `.strict()` + el test de orden de inyección (ctx spread al
+      final) ya cubren; el riesgo es futuro (si una query gana un param
+      opcional, una clave inyectada en modo bypass pasaría a controlarlo).
+- [ ] (origen: review quality T1 B5) **Bloque slice/totalRows duplicado**
+      entre `get-onetable-rows.ts` y `get-days-of-inventory.ts` (cap D-1 +
+      `totalRows` + `rows.slice`): dedup en un helper compartido (p.ej.
+      `capRows(rows, limit)` en `core/ai/tools/context.ts`, donde ya viven
+      los schemas y helpers) la próxima vez que se toque el módulo.
 
 ## Hooks / UI
 
@@ -84,6 +96,10 @@
 - [ ] (origen: pendiente #2 de CLAUDE.md, confirmado inexistente
       2026-07-15) **Segunda Neon branch para preflight DB** — junto con la
       DB de prod separada; necesaria solo si se reusa scripts/preflight.ts.
+- [ ] (origen: brief T1 B5 §6, diferido por decisión) **Rate limiting por
+      usuario del chat IA** (`/api/ai/chat`): cada mensaje dispara hasta 5
+      steps de modelo + queries; sin límite por usuario el costo es
+      open-ended. Diseñar junto con el resto de límites de prod.
 
 ## Infra de tests
 
@@ -109,6 +125,15 @@
       per test process, wired through dev + CI env. Documented inline in
       `vitest.config.ts` (commit b6348e8). Only needed if concurrent local
       suites are ever run; CI never needs it.
+
+
+- [ ] (origen: re-review quality T1 B5, 2026-07-16) **Flush de microtasks
+      mágico en el test de concurrencia de cuts** (`tests/ai/tools.test.ts`):
+      el test hace flush de 5 iteraciones de microtasks, número acoplado a la
+      profundidad actual de awaits del código bajo test — si la cadena de
+      awaits crece, el test puede volverse flaky/falso-verde. Reemplazar por
+      un gate determinista (promise diferida que los dos paths awaiten) si se
+      vuelve a tocar el archivo.
 
 ## Pre-lanzamiento
 
