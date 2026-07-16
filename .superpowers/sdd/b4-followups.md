@@ -1,3 +1,7 @@
+# CERRADO 2026-07-15 — ledger del ciclo B4→B-3, mayoría tachada.
+# Ítems abiertos migrados a hardening-backlog.md. Se conserva como
+# registro histórico; NO agregar entradas nuevas acá.
+
 ## Task 6 — code-quality follow-ups (logged 2026-06-26, NOT done in Task 6)
 
 - [x] **cerrado en FF-3, 2026-07-13.** #3 Route-handler behavioral tests for credentials route (401 / JSON-parse 400 /
@@ -53,14 +57,14 @@ Items #4-#7 → fold into the B4 whole-branch final review.
       not permit `CREATE DATABASE`. Real fix = a dedicated database/connection string per test process,
       wired through dev + CI env. Documented inline in `vitest.config.ts` (commit b6348e8). Only needed
       if concurrent local suites are ever run; CI never needs it.
-- [ ] **Orchestration process hygiene: confirm zero orphan processes before dispatching an
+- [x] **promovido a CLAUDE.md (Reglas operativas permanentes), cerrado 2026-07-15.** **Orchestration process hygiene: confirm zero orphan processes before dispatching an
       implementer.** During the harness task, two implementer subagents came to rest with LIVE
       background processes still running — one was editing `vitest.config.ts` while another hunt ran,
       and lingering `pnpm test` processes polluted a concurrent verification run (the exact
       cross-process gotcha above, in vivo). Before dispatching any implementer that runs tests or
       edits shared config: `ps aux | grep -E "vitest|pnpm test"` and kill stragglers first. Never run
       two test-executing processes against the shared dev DB simultaneously.
-- [ ] Higiene git: verificar branch con `git branch --show-current` antes de
+- [x] **promovido a CLAUDE.md (Reglas operativas permanentes), cerrado 2026-07-15.** Higiene git: verificar branch con `git branch --show-current` antes de
       cualquier operación destructiva (reset --hard corrido en branch equivocada,
       2026-07-13; recuperado sin pérdida).
 
@@ -144,7 +148,7 @@ Service-design notes (document-or-decide; no action unless a future flow trips t
       stale que puede limpiar el notice antes del retry. Solo pierde
       feedback, no corrompe estado. Causa raíz: hooks sin señal de in-flight
       (pre-existente). Candidato whole-branch review o hardening.
-- [ ] UX: en la rama conflict el notice aparece un round-trip después
+- [x] **documentado, sin acción (cerrado 2026-07-15 — es una nota de tradeoff, no una tarea; ya vive en comentario en el código).** UX: en la rama conflict el notice aparece un round-trip después
       (tradeoff deliberado del reorden anti-race, documentado en comentario).
 - [x] **cerrado en B-3, 2026-07-14 (B4: clear condicional en la transición vacío→poblado de la data refetcheada).** Notice verde de conflict-section persiste indefinido: sin dismiss y
       sin clear al llegar conflictos nuevos — un "Conflicto resuelto." viejo
@@ -154,14 +158,14 @@ Service-design notes (document-or-decide; no action unless a future flow trips t
 
 ## B-1 — minors de review (logged 2026-07-14, no bloqueantes)
 
-- [ ] **Pin faltante: override con salePrice NULL** (purchase-only, estado
+- [x] **cerrado en B-2 (28175ff): P6/Row H en money-cascade.test.ts pinnea purchase-only → cae a base (600.00). DRIFT: quedó sin tachar al commitear B-2; corregido en B-4, 2026-07-15.** **Pin faltante: override con salePrice NULL** (purchase-only, estado
       legal per schema `Decimal?`) debe caer a base. La cascada lo maneja
       (units × NULL → NULL → COALESCE sigue) pero ningún seed lo pinnea.
       DESTINO: test obligatorio dentro de B-2 (su UI hace alcanzable el
       estado). Una fila de seed extra en money-cascade.test.ts.
 - [x] **cerrado en B-3, 2026-07-14 (A7; la línea era :238 post-B2).** **Assertion redundante en money-cascade.test.ts:223** (`not.toBeNull()`
       antes de `toBeCloseTo`). Cosmético; whole-branch review.
-- [ ] **Nota documental:** la distinción null-vs-0 a nivel agregado es
+- [x] **documentado, sin acción (cerrado 2026-07-15 — nota, no tarea).** **Nota documental:** la distinción null-vs-0 a nivel agregado es
       estructural (SUM no distingue); el pin vive en los `toBeNull()`
       per-row de getOneTableRows. Sin acción.
 
@@ -188,7 +192,7 @@ Service-design notes (document-or-decide; no action unless a future flow trips t
 
 Carril spec (1):
 
-- [ ] Guard extra no pedido por el brief: check de tipo de `productId`
+- [x] **documentado, sin acción (cerrado 2026-07-15 — desvío declarado y aceptado; su propio texto dice "sin acción").** Guard extra no pedido por el brief: check de tipo de `productId`
       (no-string/vacío → 400 INVALID_BODY) en price-overrides PUT, insertado
       entre "4 keys" y "chain". Declarado en el self-report; no reordena los
       guards especificados y evita un 500 de Prisma. Sin acción — registrado
@@ -251,7 +255,7 @@ Carril quality (I-1 fue a fix pass; M-4 acoplado al fix):
       "números decimales no negativos" sin pista del cap. Candidato:
       actualizar mensaje (y opcional hint client-side) en hardening
       post-merge.
-- [ ] **M-3 — doble path de apertura del picker en chain-upload**: el click
+- [x] **cerrado 2026-07-15: verificado en el smoke de B-3 (aprobado por Michael) — el picker abre una sola vez; sin acción.** **M-3 — doble path de apertura del picker en chain-upload**: el click
       del label nuevo (B7) burbujea al dropzone → segundo `input.click()`.
       Esperable no-op por el click-in-progress del spec, pero es path nuevo.
       VERIFICAR EN EL SMOKE de Michael: el picker abre UNA sola vez al

@@ -11,7 +11,7 @@ markdown# CLAUDE.md — OneTable Project Context
 **Primer cliente real:** VIKS Jerky Co.
 **Fase actual:** Fase 2 (beta con VIKS). Fase 1 (demo ANTAD) cerrada y deployada en Vercel.
 **Repo:** github.com/SnakeJazzzz/OneTable
-**Branch de trabajo:** feature branches off `main`. **Estado actual:** branch protection en GitHub sigue OFF (ADR-001); la única protección contra commits directos a `main` es el hook local `block-main-writes`. **Plan Fase 2:** branch protection ON en pre-work B0 (ver `onetable-fase2-spec.md §11.1`).
+**Branch de trabajo:** feature branches off `main`. **Estado actual (verificado 2026-07-15 vía `gh api .../branches/main/protection`):** branch protection ON — required status check `ci` (strict) + `enforce_admins`; force-push y delete bloqueados. Se habilitó en el pre-work B0 como estaba planeado. El hook local `block-main-writes` sigue activo como segunda capa. ADR-001 (protection OFF durante setup) queda como referencia histórica de por qué estuvo apagada.
 
 ---
 
@@ -32,17 +32,19 @@ markdown# CLAUDE.md — OneTable Project Context
 
 ## Documentos fuente de verdad (leer en este orden si arrancás fresh)
 
+**El mapa completo de docs/ (qué manda, qué es historia, cómo transita) vive en `docs/README.md`.**
+
 **Autoritativo para Fase 2 (lo que se está construyendo ahora):**
 
 1. `docs/specs/onetable-fase2-spec.md` — **fuente única de verdad** de decisiones, schema, flujos y orden de ejecución de Fase 2. Cualquier divergencia entre otros docs y esta spec: la spec gana.
 2. `docs/specs/onetable-fase3-spec-draft.md` — diseño congelado de items diferidos a Fase 3 (AES-GCM credenciales, multi-marca eventual, build de forecasting si llega tarde).
 
-**Histórico de Fase 1 (referencia, no autoritativo para Fase 2):**
+**Histórico (referencia, no autoritativo — vive en `docs/archive/` y en `docs/handoff/`):**
 
-3. `docs/specs/onetable-fase1-spec.md` — spec del demo ANTAD. Útil para entender por qué algunas piezas son como son (UPSERT key, NULLS NOT DISTINCT, normalizer agnóstico). Las referencias prescriptivas a Fase 2 en este doc ya fueron corregidas con punteros a fase2-spec.
-4. `docs/plans/onetable-fase1-plan.md` — plan ejecutable Fase 1. Mismo tratamiento de punteros.
-5. `docs/handoff/session-*.md` + `docs/handoff/g9-vercel-deploy.md` — handoffs del demo Fase 1.
-6. `docs/adr/ADR-001-branch-protection-off-during-setup.md` — decisión consciente sobre branch protection OFF durante setup. Trigger ya disparado; se re-habilita en Fase 2 B0.
+3. `docs/archive/fase1/onetable-fase1-spec.md` — spec del demo ANTAD. Útil para entender por qué algunas piezas son como son (UPSERT key, NULLS NOT DISTINCT, normalizer agnóstico).
+4. `docs/archive/fase1/onetable-fase1-plan.md` — plan ejecutable Fase 1.
+5. `docs/handoff/` — handoffs de todas las sesiones (índice en `docs/handoff/README.md`). Registro histórico: no se editan.
+6. `docs/adr/ADR-001-branch-protection-off-during-setup.md` — por qué branch protection estuvo OFF durante el setup. Cumplida: hoy está ON (ver D8).
 
 **Para particularidades de los portales (parsers):** `docs/specs/viks-data/README.md`.
 
@@ -83,7 +85,7 @@ Hay un worm activo en npm desde mayo 11, 2026 ("Mini Shai-Hulud", CVE-2026-45321
 - **D5:** Export Excel/CSV client-side con SheetJS. No server-side.
 - **D6:** Selector manual de portal en upload (no auto-detect).
 - **D7:** Productos sin mapear → `SelloutData.productId = NULL` + insert en `UnmappedProduct`. Banner en dashboard con CTA a Catálogo. No rechazar el upload.
-- **D8 (estado presente vs plan Fase 2):** Branch protection en GitHub está OFF desde setup (ADR-001). Hoy la única protección contra commits directos a `main` es el hook local `block-main-writes`. **Plan Fase 2:** se re-habilita ON en pre-work B0 (`onetable-fase2-spec.md §11.1`) junto con CI de los 89 tests como required status check.
+- **D8 (cumplida en B0):** Branch protection en GitHub está ON (verificado 2026-07-15): required status check `ci` que corre la suite completa en cada PR + `enforce_admins`. Estuvo OFF durante el setup por decisión consciente (ADR-001, referencia histórica). El hook local `block-main-writes` se conserva como segunda capa.
 
 ---
 
@@ -138,6 +140,9 @@ Reglas operativas permanentes:
   sesiones se /clear-ean; nada vive en memoria entre bloques.
 - Mensajes de commit sin referencias falsas de spec; tasks post-plan citan
   el ledger.
+- Los paths de un commit salen de git status al momento de commitear,
+  nunca de una lista pre-compuesta en el brief o el plan (un fix pass
+  puede haber agregado archivos).
 
 ### Operaciones destructivas de DB
 
@@ -196,15 +201,17 @@ grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|router_init|setup
 
 ## Pendientes conocidos del usuario (recordar cuando aplique)
 
-1. **`PREFLIGHT_DATABASE_URL` no agregado a `.env.example`** — hook `block-env-writes` bloqueó la edición. Verificado pendiente. Si Fase 2 reusa el preflight script, agregar manualmente.
-2. **Segunda Neon branch para preflight DB** — pendiente. Necesario si se reusa preflight.
-3. **Prisma 6.19.3 deprecation warning** sobre `package.json#prisma` (deprecated en Prisma 7, migra a `prisma.config.ts`). Diferido — decidir en Fase 2 si se migra o se sigue posponiendo.
-4. **G2 Step 0 follow-ups remanentes** (typecheck script ya HECHO en `package.json:15`):
-   - Emerald HSL: cambiar `158 64% 40%` → `160 84% 39%` en `app/globals.css` (`:root` y `.dark`). Verificar en pasada visual — el demo se deployó así que probablemente quedó OK.
-   - Tokens shadcn faltantes (`--card`, `--popover`, `--accent`, `--destructive`, `--secondary`, `--input`, `--ring`, `--radius`). Verificar.
-   - Reforzar `scripts/check-supply-chain.sh` con `set -euo pipefail` + quote vars. Verificar.
-5. **`upsertUnmapped()` race condition latente** en `core/normalizer/upsert.ts` — usa findUnique + create/update en vez de raw INSERT...ON CONFLICT. Se aborda en Fase 2 B4 (Portales) al refactorear normalizer para conflict resolution (`onetable-fase2-spec.md §8.3`).
-6. **Scaffolds pre-existentes commiteados** en `app/(auth)/`, `app/(dashboard)/`, `app/(marketing)/`, `app/api/`, `core/analytics/`, `core/types/`, `lib/`, `prisma/`. NO requieren limpieza — son estructura preparada para gates futuras.
+> Auditados uno por uno contra el repo el 2026-07-15 (B-4). Los tachados quedan como registro.
+
+1. **`PREFLIGHT_DATABASE_URL` no agregado a `.env.example`** — hook `block-env-writes` bloqueó la edición. **Re-verificado 2026-07-15: sigue faltando** (`grep PREFLIGHT .env.example` → vacío). Si Fase 2 reusa el preflight script, agregar manualmente.
+2. **Segunda Neon branch para preflight DB** — confirmado por Michael 2026-07-15: NO existe. Va en el bloque de hardening de infraestructura pre-lanzamiento (ver hardening-backlog.md). Necesaria solo si se reusa el preflight script.
+3. **Prisma deprecation warning** sobre `package.json#prisma` — **re-verificado 2026-07-15: la key sigue en `package.json:17`**, Prisma sigue en 6.19.3 (deprecated en Prisma 7, migra a `prisma.config.ts`). Diferido — decidir en el bloque de hardening o al subir de major.
+4. **G2 Step 0 follow-ups** (typecheck script HECHO en `package.json:15`) — re-verificados 2026-07-15:
+   - ~~Tokens shadcn faltantes~~ **HECHO**: `--card`, `--popover`, `--accent`, `--destructive`, `--secondary`, `--input`, `--ring`, `--radius` existen todos en `app/globals.css:9-26`.
+   - ~~Emerald HSL~~ **CERRADO (decisión de Michael, 2026-07-15)**: el valor deployado `--primary: 142 71% 45%` queda como el color del producto. El target `160 84% 39%` se descarta (corrección de brainstorm nunca aplicada, superada por dos deploys de uso real). Si hay pasada de identidad visual pre-lanzamiento comercial, ahí se re-decide el theme completo (incluido el bloque `.dark` inexistente) — registrado en hardening-backlog.md sección "Pre-lanzamiento".
+   - **Pendiente**: reforzar `scripts/check-supply-chain.sh` con `set -euo pipefail` + quote vars (re-verificado: el script no lo tiene).
+5. ~~**`upsertUnmapped()` race condition latente**~~ **RESUELTO en B4** (re-verificado 2026-07-15): el normalizer usa `batchUpsertUnmapped` con raw `INSERT ... ON CONFLICT ... DO UPDATE` (`core/normalizer/upsert.ts:171-178`); no queda ningún findUnique+create/update.
+6. ~~**Scaffolds pre-existentes commiteados**~~ **VENCIDO**: los gates de Fase 2 poblaron esas carpetas con rutas y lógica reales (`app/(auth)/login|register|signup`, `app/(dashboard)/analisis|dashboard|parametros|portales|promotoria`, etc.). Ya no son scaffolds.
 
 ---
 
@@ -226,6 +233,11 @@ Antes de `/clear`, generar un `docs/handoff/session-N-end-of-day-X.md` con:
 - Estado del working tree
 - TODOs / blockers para próxima sesión
 - Próximo task recomendado
+
+Si el cierre es de BLOQUE o FASE, además:
+- Mover specs/planes ejecutados a `docs/archive/` (git mv + grep de
+  punteros), actualizar `docs/README.md`. El detalle del procedimiento
+  vive en `docs/README.md`.
 
 ---
 
