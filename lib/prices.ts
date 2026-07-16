@@ -1,16 +1,20 @@
 /**
- * lib/prices.ts — shared price-input validation for API routes (B5-2).
+ * lib/prices.ts — shared price-input validation for API routes.
  *
- * The regex and the Decimal(12,2) bound are copied VERBATIM from the two
- * module-local copies in app/api/parametros/skus/route.ts and
- * app/api/parametros/skus/[id]/route.ts (byte-compatible on purpose), so a
- * future unification of those copies onto this helper is a mechanical no-op.
- * Those two local copies are intentionally NOT touched in B5-2 (blast radius);
- * the unification is tracked in the followups ledger.
+ * Since B5-3 (item A1) this is the SINGLE parser behind all three price
+ * routes: parametros/skus POST, parametros/skus/[id] PATCH, and
+ * portales/price-overrides PUT. Each route maps `empty` onto its own
+ * semantics (omit on create, clear on PATCH) via a local adapter.
  *
- * Known, inherited behavior (ledger B-2, document-or-decide): the regex accepts
- * unlimited decimals and Postgres silently rounds to 2 in numeric(12,2)
- * ("10.999" → 11.00 with no error). Same as parametros — do not "fix" here.
+ * Decimals are capped at 2 (B5-3 item A2, decided from the ledger's
+ * document-or-decide): the old `\.\d+` regex let Postgres silently round
+ * numeric(12,2) inputs ("10.999" → 11.00) and let "9999999999.995" pass the
+ * upper bound only to overflow after rounding (P2000 → raw 500). Both are now
+ * a clean 400 at the route.
+ *
+ * DELIBERATE DIVERGENCE: the Excel importer (core/parameters/import.ts
+ * parsePrice) still accepts unlimited decimals — core/ is out of scope for
+ * this sweep. UI-strict vs import-permissive is documented, not resolved.
  */
 
 // Upper bound for a Decimal(12,2) column (10 integer digits): a value >= 10^10
@@ -31,7 +35,7 @@ export function parsePriceInput(raw: unknown): PriceInputResult {
   if (raw === null || raw === undefined || raw === '') return { kind: 'empty' };
   const s = String(raw).trim();
   if (s === '') return { kind: 'empty' };
-  if (!/^\d+(\.\d+)?$/.test(s)) return { kind: 'invalid' };
+  if (!/^\d+(\.\d{1,2})?$/.test(s)) return { kind: 'invalid' };
   if (Number(s) >= DECIMAL_12_2_MAX_EXCLUSIVE) return { kind: 'invalid' };
   return { kind: 'value', value: s };
 }

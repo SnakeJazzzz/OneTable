@@ -181,7 +181,16 @@ function SingleSlot({ chain, fileType, label, onUploaded }: SingleSlotProps) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm font-medium text-muted-foreground">{label}</p>
+      {/* Real label→input association (B5-3 B7). The id is useId-based, so it
+          is globally unique across cards and Amazon's two slots. Activating the
+          label opens the native picker, hence the disabled guard on the input
+          below (mirrors the dropzone's isUploading gate). */}
+      <label
+        htmlFor={`${inputId}-file`}
+        className="block text-sm font-medium text-muted-foreground"
+      >
+        {label}
+      </label>
 
       {/* Dropzone */}
       <div
@@ -240,6 +249,7 @@ function SingleSlot({ chain, fileType, label, onUploaded }: SingleSlotProps) {
           type="file"
           accept=".xlsx"
           className="hidden"
+          disabled={isUploading}
           onChange={(e) => {
             const picked = e.target.files?.[0];
             if (picked) acceptFile(picked);

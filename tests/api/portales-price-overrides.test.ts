@@ -226,6 +226,33 @@ describe('portales/price-overrides handler (GET + PUT)', () => {
     }
   });
 
+  it('PUT returns 400 INVALID_PRICE for a 3-decimal value (B5-3 A2: 2-decimal cap)', async () => {
+    // Deliberate behavior change pinned here: pre-A2 "10.999" was accepted and
+    // Postgres silently rounded it to 11.00 in numeric(12,2).
+    mockSession();
+    const res = await PUT(
+      putReq({ chain: 'SORIANA', productId: pCreate, purchasePrice: '10.999', salePrice: null }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('INVALID_PRICE');
+  });
+
+  it('PUT accepts a numeric (non-string) price and persists its canonical string (Q-8)', async () => {
+    // Pins the String() coercion by design: a string-only refactor of the
+    // parser would silently break numeric JSON clients without this test.
+    mockSession();
+    const res = await PUT(
+      putReq({ chain: 'SORIANA', productId: pUpdate, purchasePrice: 12.34, salePrice: null }),
+    );
+    expect(res.status).toBe(200);
+
+    const row = await db.productPriceOverride.findUnique({
+      where: { productId_chain: { productId: pUpdate, chain: 'SORIANA' } },
+    });
+    expect(row?.purchasePrice?.toString()).toBe('12.34');
+  });
+
   it('PUT returns 404 PRODUCT_NOT_FOUND for another tenant\'s product', async () => {
     mockSession();
     const res = await PUT(

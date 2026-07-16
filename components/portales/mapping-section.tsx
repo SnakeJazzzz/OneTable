@@ -82,6 +82,37 @@ async function postMapping(body: {
   }
 }
 
+type MutateOutcome = { kind: 'ok' } | { kind: 'error'; message: string };
+
+// Shared DELETE/PATCH mutation against /api/portales/mappings (B5-3 B1): both
+// verbs answer 200 { ok: true } on success and { error } otherwise. Callers
+// keep their own state handling (the setters differ by design); `fallback`
+// labels the verb for message-less failures ("Error al quitar (409)").
+async function mutateMapping(
+  method: 'DELETE' | 'PATCH',
+  body: Record<string, unknown>,
+  fallback: string,
+): Promise<MutateOutcome> {
+  try {
+    const res = await fetch('/api/portales/mappings', {
+      method,
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: { code?: string; message?: string } }
+      | null;
+    // res.ok FIRST: a 409/404 carries error.message, never { ok }.
+    if (!res.ok) {
+      return { kind: 'error', message: data?.error?.message ?? `${fallback} (${res.status})` };
+    }
+    return { kind: 'ok' };
+  } catch (err) {
+    return { kind: 'error', message: err instanceof Error ? err.message : 'Error de red' };
+  }
+}
+
 // ---- Shared bits ----
 
 const selectClasses =
@@ -335,31 +366,31 @@ function MappedGroupItem({
     if (portalString === null || deleting) return;
     setDeleting(true);
     setDeleteError(null);
-    try {
-      const res = await fetch('/api/portales/mappings', {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ chain, portalString, productId: group.productId }),
-      });
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: { code?: string; message?: string } }
-        | null;
-      // res.ok FIRST: a 409/404 carries error.message; the dialog stays open so
-      // the user sees why (NO_UPLOAD / CONFLICTED / MAPPING_NOT_FOUND).
-      if (!res.ok) {
-        setDeleteError(data?.error?.message ?? `Error al quitar (${res.status})`);
-        setDeleting(false);
-        return;
-      }
-      // 200 { ok: true }: close, then run the shared refetch (same path as +Agregar).
+    const outcome = await mutateMapping(
+      'DELETE',
+      { chain, portalString, productId: group.productId },
+      'Error al quitar',
+    );
+    // Error: the dialog stays open so the user sees why (NO_UPLOAD /
+    // CONFLICTED / MAPPING_NOT_FOUND).
+    if (outcome.kind === 'error') {
+      setDeleteError(outcome.message);
       setDeleting(false);
-      setPendingDelete(null);
-      await onDeleted(portalString);
-    } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Error de red');
-      setDeleting(false);
+      return;
     }
+    // 200 { ok: true }: close, then run the shared refetch (same path as +Agregar).
+    setDeleting(false);
+    setPendingDelete(null);
+    // Stale twins (B5-3 B2): the deleted row may also own the open edit panel
+    // or a confirm error — clear both so neither re-attaches to a future row
+    // with the same portalString.
+    if (editing === portalString) {
+      setEditing(null);
+      setEditPick('');
+      setEditError(null);
+    }
+    if (confirmError?.portalString === portalString) setConfirmError(null);
+    await onDeleted(portalString);
   }
 
   // PATCH the edited row only: oldProductId is THE row's SKU (multi-value siblings
@@ -368,33 +399,24 @@ function MappedGroupItem({
     if (!editPick || retargeting) return;
     setRetargeting(true);
     setEditError(null);
-    try {
-      const res = await fetch('/api/portales/mappings', {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ chain, portalString, oldProductId, newProductId: editPick }),
-      });
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: { code?: string; message?: string } }
-        | null;
-      // res.ok FIRST: a 409/404 carries error.message, never { ok } — the row stays
-      // in edit mode so the user sees why (CONFLICTED / MAPPING_NOT_FOUND / ...).
-      if (!res.ok) {
-        setEditError(data?.error?.message ?? `Error al cambiar (${res.status})`);
-        setRetargeting(false);
-        return;
-      }
-      // 200 { ok: true }: exit edit mode, then run the shared refetch (same path
-      // as Quitar/+Agregar — Task 11 cross-propagation).
+    const outcome = await mutateMapping(
+      'PATCH',
+      { chain, portalString, oldProductId, newProductId: editPick },
+      'Error al cambiar',
+    );
+    // Error: the row stays in edit mode so the user sees why (CONFLICTED /
+    // MAPPING_NOT_FOUND / ...).
+    if (outcome.kind === 'error') {
+      setEditError(outcome.message);
       setRetargeting(false);
-      setEditing(null);
-      setEditPick('');
-      await onRetargeted(portalString);
-    } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Error de red');
-      setRetargeting(false);
+      return;
     }
+    // 200 { ok: true }: exit edit mode, then run the shared refetch (same path
+    // as Quitar/+Agregar — Task 11 cross-propagation).
+    setRetargeting(false);
+    setEditing(null);
+    setEditPick('');
+    await onRetargeted(portalString);
   }
 
   // Same tuple as the row being confirmed — productId comes from the row itself
@@ -406,11 +428,17 @@ function MappedGroupItem({
     setConfirming(portalString);
     setConfirmError(null);
     const outcome = await postMapping({ chain, portalString, productId, status: 'CONFIRMED' });
-    setConfirming(null);
     if (outcome.kind === 'mapped') {
+      // Hold the in-flight flag through the shared refetch (B5-3 B2 / FF-1):
+      // unlike delete/retarget (whose UI surface closes on success), this
+      // button stays mounted — releasing before the refetch resolves would
+      // re-enable it against stale PENDING_REVIEW data.
       await onConfirmed(portalString);
+      setConfirming(null);
       return;
     }
+    // Error: release immediately so the user can retry.
+    setConfirming(null);
     // conflict_exists is not expected in the normal single-user flow (a concurrent
     // write could still produce it) — the fallback message below handles it defensively.
     setConfirmError({
@@ -555,6 +583,7 @@ function MappedGroupItem({
         confirmLabel="Quitar"
         cancelLabel="Cancelar"
         loading={deleting}
+        loadingLabel="Quitando…"
         errorMessage={deleteError}
         onConfirm={confirmDelete}
         onCancel={() => {

@@ -34,15 +34,27 @@ function OverrideRowItem({ chain, row, onSaved }: OverrideRowItemProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by save() after a successful PUT + refetch; forces the re-sync
+  // effect below to run for THIS row even when the server strings came back
+  // unchanged. Never bumps for sibling rows.
+  const [syncEpoch, setSyncEpoch] = useState(0);
 
-  // Re-sync inputs when the refetched server state changes (credentials-form
-  // FIX #3 precedent). saved/error are NOT blind-cleared here: `saved` is set
-  // only after the refetch resolves, so the re-sync must not wipe it — user
-  // edits clear both instead.
+  // Re-sync inputs to the server strings (credentials-form FIX #3 precedent).
+  // Deps are by VALUE plus this row's own syncEpoch — never `row` identity:
+  // every refetch builds fresh row objects for ALL rows, so an identity dep
+  // would wipe unsaved typing in sibling rows whenever any one row saves
+  // (B5-3 fix pass I-1). The epoch covers the value-equal case: the user
+  // typed "80.00" over a server "80" (a server-side no-op), the refetched
+  // strings are unchanged, but the bump re-runs this effect so the input
+  // snaps to the canonical server string and dirty goes false. The effect
+  // reads the CURRENT render's props (not save()'s closure), and React
+  // applies the hook's setData before the later epoch bump, so a save that
+  // CHANGED the server value also converges here on the fresh string.
+  // saved/error are NOT blind-cleared here — user edits clear both instead.
   useEffect(() => {
     setPurchase(serverPurchase);
     setSale(serverSale);
-  }, [serverPurchase, serverSale]);
+  }, [syncEpoch, serverPurchase, serverSale]);
 
   const dirty = purchase.trim() !== serverPurchase || sale.trim() !== serverSale;
 
@@ -82,11 +94,16 @@ function OverrideRowItem({ chain, row, onSaved }: OverrideRowItemProps) {
         }
         throw new Error(message);
       }
-      // Success is conditional on refetched data, not a blind clear: the ✓
-      // only appears after the parent refetch resolved and the inputs
-      // re-synced to the persisted truth.
+      // The ✓ appears only after the parent refetch SETTLES (the hook catches
+      // its own fetch errors, so this await always resolves — a failed refetch
+      // still shows the ✓, backed by the 200 above rather than re-read data).
+      // The epoch bump (after the await, so the refetched data is already
+      // dispatched) re-runs the re-sync effect for THIS row only, snapping
+      // the inputs to the server's canonical strings even when the saved
+      // value round-tripped unchanged. Sibling rows keep any unsaved typing.
       await onSaved();
       setSaved(true);
+      setSyncEpoch((n) => n + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al guardar');
     } finally {

@@ -17,6 +17,7 @@
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { parsePriceInput } from '@/lib/prices';
 
 type PatchSkuBody = {
   nameStandard?: unknown;
@@ -25,29 +26,18 @@ type PatchSkuBody = {
   salePriceBase?: unknown;
 };
 
-// Tri-state price parse: omitted key vs explicit null/empty vs value vs invalid.
-// On PATCH an explicit empty string / null clears the price; an omitted key
-// leaves it unchanged.
+// Route-local tri-state semantics over the shared parser (lib/prices.ts):
+// omitted key → leave the column unchanged; explicit null/empty → clear it.
 type PriceResult =
   | { kind: 'absent' } // key not present in body → leave column unchanged
   | { kind: 'clear' } // explicit null/empty → write null
   | { kind: 'value'; value: string }
   | { kind: 'invalid' };
 
-// Upper bound for a Decimal(12,2) column (10 integer digits): a value >= 10^10
-// passes the regex but overflows the column, making Prisma throw P2000/P2020 —
-// which the catch block (only P2002) doesn't handle → generic 500. Reject it
-// here so the route returns the graceful 400 INVALID_PRICE instead.
-const DECIMAL_12_2_MAX_EXCLUSIVE = 10_000_000_000; // matches core/parameters/import.ts
-
 function parsePatchPrice(present: boolean, raw: unknown): PriceResult {
   if (!present) return { kind: 'absent' };
-  if (raw === null || raw === undefined || raw === '') return { kind: 'clear' };
-  const s = String(raw).trim();
-  if (s === '') return { kind: 'clear' };
-  if (!/^\d+(\.\d+)?$/.test(s)) return { kind: 'invalid' };
-  if (Number(s) >= DECIMAL_12_2_MAX_EXCLUSIVE) return { kind: 'invalid' };
-  return { kind: 'value', value: s };
+  const parsed = parsePriceInput(raw);
+  return parsed.kind === 'empty' ? { kind: 'clear' } : parsed;
 }
 
 export async function PATCH(
@@ -88,7 +78,7 @@ export async function PATCH(
   if (purchase.kind === 'invalid' || sale.kind === 'invalid') {
     return errorResponse(
       'INVALID_PRICE',
-      'Los precios deben ser números decimales no negativos.',
+      'El precio debe ser un número no negativo, con máximo 2 decimales.',
       400,
     );
   }

@@ -235,7 +235,6 @@ describe('§7 money cascade (B-1) — integration against dev DB', () => {
         { clientId, userId, periodYear: 2026, periodMonth: 5 },
         DEFAULT_CUTS,
       );
-      expect(kpis.variationPct).not.toBeNull();
       expect(kpis.variationPct).toBeCloseTo(((3734.56 - 280) / 280) * 100, 3);
     });
 

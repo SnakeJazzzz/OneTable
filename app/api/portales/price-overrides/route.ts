@@ -116,7 +116,7 @@ export async function PUT(req: Request): Promise<Response> {
   if (purchase.kind === 'invalid' || sale.kind === 'invalid') {
     return errorResponse(
       'INVALID_PRICE',
-      'Los precios deben ser números decimales no negativos.',
+      'El precio debe ser un número no negativo, con máximo 2 decimales.',
       400,
     );
   }

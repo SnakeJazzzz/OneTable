@@ -158,9 +158,13 @@ export async function POST(req: Request): Promise<Response> {
       explicit = { chain: parsedChain, fileType: parsedFileType };
     } else {
       const issues: string[] = [];
-      if (chainStr === null) issues.push('chain field missing');
+      // A File in a metadata field is a caller bug distinct from an absent
+      // field — reporting it as "missing" misleads whoever debugs the client.
+      if (rawChain instanceof File) issues.push('chain field must be a plain text value, not a file');
+      else if (chainStr === null) issues.push('chain field missing');
       else if (parsedChain === null) issues.push(`unknown chain: "${chainStr}"`);
-      if (fileTypeStr === null) issues.push('fileType field missing');
+      if (rawFileType instanceof File) issues.push('fileType field must be a plain text value, not a file');
+      else if (fileTypeStr === null) issues.push('fileType field missing');
       else if (parsedFileType === null) issues.push(`unknown fileType: "${fileTypeStr}"`);
       explicitError = `invalid explicit upload metadata: ${issues.join('; ')}`;
     }

@@ -143,6 +143,19 @@ export function ConflictSection({
   // a single message at a time, replaced on the next resolution, no auto-dismiss.
   const [notice, setNotice] = useState<string | null>(null);
 
+  // B5-3 B4 (FF-2): a lingering "Conflicto resuelto." must not coexist with NEW
+  // conflicts that arrive later. Clear the notice on the empty→populated
+  // transition of the refetched data — a conditional clear keyed to fresh data,
+  // never a blind clear-on-refetch (a resolution that leaves OTHER conflicts
+  // standing keeps its notice, as today).
+  const hadConflicts = useRef(false);
+  useEffect(() => {
+    if (!data) return; // nothing fetched yet — never decide on absence
+    const has = data.conflicts.length > 0;
+    if (has && !hadConflicts.current) setNotice(null);
+    hadConflicts.current = has;
+  }, [data]);
+
   // Mirror MappingSection's anti-double-fetch guard: the hook already fetches on
   // its own mount, so skip the first effect run and only refetch on later bumps.
   const firstRefresh = useRef(true);

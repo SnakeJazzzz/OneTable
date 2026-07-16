@@ -51,7 +51,8 @@ describe('portales/credentials handler (GET + PUT)', () => {
 
   it('GET returns 401 when no session', async () => {
     vi.mocked(auth).mockResolvedValueOnce(null as any);
-    const res = await GET();
+    // B5-3 A4: GET now takes _req like its 5 portales siblings (unused).
+    const res = await GET(new Request('http://test/api/portales/credentials'));
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.error.code).toBe('UNAUTHORIZED');

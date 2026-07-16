@@ -270,6 +270,7 @@ describe('resolveConflict', () => {
 describe('deleteMapping', () => {
   afterAll(async () => {
     await db.user.deleteMany({ where: { email: { startsWith: 'b4-delete-' } } });
+    await db.user.deleteMany({ where: { email: { startsWith: 'b5-3-delete-' } } });
   });
 
   it('reverts ONLY the deleted string\'s sellout rows (multi-value footgun guard), re-queues it, removes the mapping', async () => {
@@ -393,6 +394,25 @@ describe('deleteMapping', () => {
     await expect(
       deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'NOPE', productId: skuX.id, firstSeenUploadId: 'anything' }),
     ).rejects.toThrow(/mapping not found/);
+  });
+
+  // B5-3 A6 — combined edge: zero SelloutData rows AND firstSeenUploadId absent.
+  // With count 0 the requeue step is skipped entirely, so the shared guard that
+  // throws on a missing uploadId never runs: the delete must resolve cleanly.
+  it('resolves without throwing when the string has zero rows AND firstSeenUploadId is absent', async () => {
+    const { clientId } = await seedClient2('b5-3-delete-edge@test.local');
+    const skuX = await db.product.create({ data: { clientId, nameStandard: 'X', skuCode: makeCuid() } });
+    // Manual mapping: CONFIRMED, string never appeared in any upload.
+    await db.productMapping.create({ data: { clientId, chain: 'AL_SUPER', portalString: 'MANUAL-NO-UP', productId: skuX.id, status: 'CONFIRMED' } });
+
+    await deleteMapping(db, { clientId, chain: 'AL_SUPER', portalString: 'MANUAL-NO-UP', productId: skuX.id, firstSeenUploadId: undefined });
+
+    // (a) the mapping is gone.
+    const m = await db.productMapping.findFirst({ where: { clientId, chain: 'AL_SUPER', portalString: 'MANUAL-NO-UP' } });
+    expect(m).toBeNull();
+    // (b) ZERO new UnmappedProduct rows — no requeue happened.
+    const unmapped = await db.unmappedProduct.count({ where: { clientId, chain: 'AL_SUPER', portalString: 'MANUAL-NO-UP' } });
+    expect(unmapped).toBe(0);
   });
 });
 
