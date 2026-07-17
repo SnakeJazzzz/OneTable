@@ -45,3 +45,21 @@ Formato: archivo — qué cierra — commit/PR asociado.
   streaming pasado 2x, override eventsource-parser validado). Brief de T3
   patcheado con gate doble por superficie, PENDIENTE DE FILTRO EXTERNO —
   no dispatchar sin el go de Michael. El smoke de T3 cierra el bloque → PR.
+- `session-b5-chatbot-block-end.md` — cierre del BLOQUE B5 Chatbot IA
+  completo (T1 `895113e` + T2 `71502a2` + T3 `66ef457` en
+  `feat/b5-chatbot`, suite 390/390, los 3 smokes pasados, injection
+  defense validada). PR del bloque creado; merge SOLO Michael. Regla
+  nueva: copy de producto en tuteo mexicano. ⚠ `AI_GATEWAY_API_KEY` en
+  Vercel ANTES de verificar el deploy.
+
+## Cierre de Fase 2 + bloque de Hardening (branch `feat/hardening`)
+
+- `session-fase2-close.md` — CIERRE DE FASE 2 (PR #14 mergeado, main
+  @ a5fc3ae; B6 fuera por archivos reales) + kickoff del bloque de
+  hardening. Ritual de cierre de fase: spec de Fase 2 archivada a
+  `docs/archive/fase2/`, punteros cazados, CLAUDE.md corregido (drift D3
+  `getCurrentClient`→`requireAuth`, fase actual, fence bug). Backlog de
+  hardening re-groundeado (20 ítems vigentes) + engordado con auditoría de
+  superficie (auth, headers/errores, chatbot, `pnpm audit`: next crítico,
+  xlsx high, DB compartida). Corte de scope pendiente de Michael; primer
+  ítem ya decidido: DB de prod separada + backups.

@@ -83,7 +83,8 @@ docs/             specs, plans, handoffs, ADRs
 ## Visión por fases
 
 - **Fase 1 — Demo ANTAD.** COMPLETA. Deployada en Vercel.
-- **Fase 2 — Beta con VIKS.** EN CURSO. Ver `docs/specs/onetable-fase2-spec.md`.
+- **Fase 2 — Beta con VIKS.** CERRADA (2026-07-16, bloques B0-B5). B6 (parsers HEB / Al Super / La Comer) quedó fuera, bloqueado por falta de archivos reales de esos portales. Spec: `docs/archive/fase2/onetable-fase2-spec.md`.
+- **Bloque de hardening — EN CURSO.** Pre-Fase 3: infraestructura (DB prod separada + backups), seguridad y deuda acumulada. Scope en `.superpowers/sdd/hardening-backlog.md`.
 - **Fase 3 — Scrapers automáticos** (Python + FastAPI + Playwright). Cifrado AES-GCM se activa acá. Draft: `docs/specs/onetable-fase3-spec-draft.md`.
 - **Fase 4 — APIs directas con cadenas.** Negociar integración via API oficial con las cadenas grandes.
 - **Fase 5 — Promotoría y servicios.** Auditoría en tienda, conexión a CRM, alertas inteligentes, recomendaciones de reposición.
@@ -92,8 +93,8 @@ docs/             specs, plans, handoffs, ADRs
 
 - **Mapa completo de docs/ (activo vs archivo):** `docs/README.md`.
 - **Contexto operativo y reglas:** `CLAUDE.md` (raíz).
-- **Decisiones y estado autoritativo de Fase 2:** `docs/specs/onetable-fase2-spec.md`.
 - **Draft de Fase 3:** `docs/specs/onetable-fase3-spec-draft.md`.
+- **Histórico Fase 2 (referencia):** `docs/archive/fase2/onetable-fase2-spec.md` + planes de bloque en `docs/archive/fase2-bloques/`.
 - **Histórico Fase 1 (referencia):** `docs/archive/fase1/onetable-fase1-spec.md` + `docs/archive/fase1/onetable-fase1-plan.md`.
 - **SRS legacy:** `docs/specs/onetable-srs-v1.docx` — el proyecto se llamaba "Scopium"; las referencias a ese nombre se ignoran.
 

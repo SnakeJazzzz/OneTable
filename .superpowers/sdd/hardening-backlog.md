@@ -4,6 +4,31 @@
 > su origen; el texto de los migrados es VERBATIM del ledger anterior.
 > Tracked pero gitignored: `git add -f` SIEMPRE.
 
+> **RE-GROUNDING 2026-07-17 (cierre de Fase 2, kickoff hardening):** los 20
+> ítems pre-existentes fueron verificados uno por uno contra el repo real
+> (main @ a5fc3ae). TODOS siguen vigentes; ninguno fue vuelto obsoleto por
+> B5. Evidencia re-verificada de los accionables por código:
+> - Substring error-matching: `app/api/portales/mappings/route.ts:75,78,115,118,121,124`.
+> - TOCTOU price-overrides PUT: `findFirst` en `route.ts:126` → `upsert` en `:141`.
+> - Guard body no-objeto: existe en `price-overrides/route.ts:96`; sigue
+>   AUSENTE en `mappings/route.ts` y `credentials/route.ts` (grep `typeof body`).
+> - `parsePriceInput` sigue con `String(raw)` (`lib/prices.ts:34-45`) —
+>   arrays de un elemento pasan.
+> - Spread de `input` en los 7 execute de `core/ai/tools/*.ts` (grep `...input`).
+> - Dup slice/totalRows: `get-onetable-rows.ts:44-45` y `get-days-of-inventory.ts:42-43`.
+> - Q-8 acoplado al orden: `pUpdate` reusado en
+>   `tests/api/portales-price-overrides.test.ts:246,300,306`.
+> - Flush mágico de 5 microtasks: `tests/ai/tools.test.ts:517`.
+> - Hooks sin in-flight: `lib/hooks/use-portales.ts` usa refreshKey y no tiene
+>   `AbortController` (los hooks de dashboard/onetable sí lo tienen).
+> - Hint de precio: inputs con `inputMode="decimal"` pero sin validación
+>   preventiva (`components/portales/price-override-section.tsx:133-148`).
+> - Voseo: re-grep 2026-07-17 → 11 hits en los mismos 10 archivos listados.
+> - Chat: trim de CANTIDAD en `app/api/ai/chat/route.ts:108-112`; sigue sin
+>   rate limit ni cap de tamaño.
+> Los ítems de infra (DB compartida, pre-prod, preflight branch, backups) no
+> son verificables por código pero siguen vigentes por confirmación de estado.
+
 ## Rutas / services
 
 - [ ] **Sweep de error codes/classes en services y rutas.** Incluye tres
@@ -195,6 +220,156 @@
       como "cuentas de la plataforma"** antes de auto-corregirse. Sin leak
       de datos. Misma familia que el ítem anterior — resolver en el mismo
       tuning de prompt.
+
+## Auditoría de superficie — 2026-07-17 (kickoff hardening)
+
+> Ítems NUEVOS producidos por el threat model del estado real de la app (main
+> @ a5fc3ae). Cada uno con evidencia file:line, severidad y esfuerzo estimado.
+> Producidos por 3 auditorías paralelas (auth/sesiones, headers/errores,
+> chatbot) + `pnpm audit`. NINGÚN fix aplicado — esto es descubrimiento.
+> El corte de scope lo decide Michael.
+
+### CRÍTICO / ALTO — infra y datos
+
+- [ ] **[YA DECIDIDO — primer ítem de implementación] DB de prod separada +
+      backups.** Ya estaba en "Observabilidad / prod" abajo; se eleva acá por
+      severidad. Neon dev/prod COMPARTIDA: `app/api/data/reset/route.ts` hace
+      `$transaction` de `deleteMany` de SelloutData+UnmappedProduct+Upload
+      (tenant-scoped pero inmediato, sin confirmación, sin soft-delete,
+      `route.ts:36-51`); disparado desde DEV borra data REAL de prod del mismo
+      cliente. `data/upload` escribe igual a la DB compartida. Trigger inminente
+      (VIKS por cargar data real). **Sev: CRÍTICA. Esfuerzo: M** (crear branch/
+      DB Neon de prod, separar `DATABASE_URL` por entorno en Vercel, activar
+      backups automáticos, verificar que `pnpm test` local no toque prod).
+
+- [ ] **`next@14.2.18` con 1 CVE crítico + 8 high (`pnpm audit`).** El crítico
+      es **Authorization Bypass in Next.js Middleware** (patched ≥14.2.25) —
+      relevante directo: `middleware.ts` es la capa de redirect de auth de las
+      páginas. Highs: varios DoS con Server Components + SSRF (patched ≥14.2.34
+      hasta ≥15.5.16). El fix completo cruza major (15.5.16); dentro del 14.x el
+      salto a 14.2.25+ cierra el crítico y el DoS de Server Actions con riesgo
+      bajo. `next-auth@5.0.0-beta.30` cierra un email-misdelivery moderate.
+      `postcss@8.5.10` cierra un XSS moderate. **Sev: ALTA (bypass de auth).
+      Esfuerzo: S** para el bump a 14.2.35 dentro de 14.x + smoke; **L** si se
+      decide subir a Next 15 (breaking changes). Respetar supply-chain:
+      `--ignore-scripts`, pin exact, grep de lockfile, check-supply-chain.
+
+- [ ] **`xlsx@0.18.5` (SheetJS) con 2 CVE high sin patch en el registro npm**
+      (Prototype Pollution + ReDoS; "patched: <0.0.0" = no hay fix en la
+      versión de npm). SheetJS movió los fixes a su CDN propio fuera de npm.
+      Superficie real: `data/upload` y `parametros/import` parsean archivos
+      subidos por el usuario con `XLSX.read`. **Sev: ALTA (parseo de input
+      no confiable). Esfuerzo: M** — evaluar migrar a la build de SheetJS del
+      CDN oficial (rompe la mitigación de solo-npm; decisión de Michael) o
+      acotar/validar el input antes del parse. Registrar decisión.
+
+### ALTO — auth
+
+- [ ] **Login timing side-channel + sin lockout/throttling.** `auth.ts:56`
+      retorna `null` para email inexistente SIN correr bcrypt → un email no
+      registrado responde medible­mente más rápido que un password errado en
+      email existente (enumeración por timing). Además CERO lockout / backoff /
+      rate-limit en el credentials provider ni en `/api/auth/signup`: guessing
+      ilimitado de passwords. **Sev: ALTA. Esfuerzo: M** — dummy bcrypt.compare
+      para usuarios desconocidos + rate limiting (mismo mecanismo que el rate
+      limit del chat, ver sección prod).
+
+- [ ] **`clientId` del JWT nunca se re-valida contra la DB durante la vida del
+      token (default 30 días).** `auth.ts:73-90` escribe `clientId` solo en el
+      tick de sign-in y lo copia verbatim; `requireAuth()` (`auth-helpers.ts:50-60`)
+      chequea PRESENCIA, no existencia. Si un Client se borra/reasigna mientras
+      el JWT vive, la sesión sigue cargando el `clientId` stale; si un clientId
+      llegara a reusarse, riesgo de acceso cross-tenant. Tampoco hay revocación
+      de sesión de User borrado. **Sev: ALTA (aunque hoy no hay borrado de
+      Client en la app). Esfuerzo: S-M** — acortar `session.maxAge`/`updateAge`,
+      o re-validar ownership del client en `requireAuth()`.
+
+### MEDIO — auth
+
+- [ ] **Sin `session.maxAge`/`jwt.maxAge` → default de NextAuth = 30 días**
+      (`auth.ts:35`, única key de session). Ventana larga de sesión válida sin
+      forma de revocar (JWT sin DB). **Sev: MEDIA. Esfuerzo: S.**
+
+- [ ] **Enumeración de usuarios en signup:** email duplicado → 409 `EMAIL_TAKEN`
+      distinguible de los 400 de validación (`signup/route.ts:100-101`). Un
+      atacante puede sondear qué emails están registrados. **Sev: MEDIA
+      (tensión con UX — mensaje claro vs privacidad). Esfuerzo: S.**
+
+- [ ] **Política de password débil:** mínimo 6 chars, sin complejidad, sin cap
+      de 72 bytes (bcrypt trunca silenciosamente >72) (`signup/route.ts:23,48,68`).
+      **Sev: MEDIA. Esfuerzo: S.**
+
+- [ ] **`trustHost: true` incondicional** (`auth.ts:37`), no gateado por entorno.
+      OK detrás del proxy confiable de Vercel; riesgo de host-header injection
+      (open-redirect/callback) si alguna vez se despliega detrás de un proxy no
+      confiable. **Sev: BAJA hoy (Vercel), MEDIA como deuda. Esfuerzo: S** —
+      gatear a non-prod o Vercel.
+
+### MEDIO — headers y manejo de errores
+
+- [ ] **Cero security headers configurados por el repo.** `next.config.mjs` es
+      `{}` vacío; `middleware.ts` no muta headers; `vercel.json` sin bloque
+      `headers`. Faltan CSP, X-Frame-Options, X-Content-Type-Options (nosniff),
+      Referrer-Policy, Permissions-Policy. Vercel pone HSTS/HTTPS en el edge pero
+      NINGUNO de los anteriores viene por default de plataforma. **Sev: MEDIA.
+      Esfuerzo: S** — `async headers()` en `next.config.mjs` o bloque `headers`
+      en `vercel.json`. CSP es la más laboriosa (hay que enumerar orígenes).
+
+- [ ] **Throws de DB inesperados devuelven 500 crudo (HTML/stack), no `{error}`,
+      en la mayoría de las rutas.** Anti-patrón dominante: el try/catch envuelve
+      solo `req.json()`/`formData()` y deja la llamada de DB afuera. Solo 4
+      rutas con cobertura completa (`auth/signup`, `data/reset`,
+      `parametros/import`, `ai/chat`). Rutas clase (c) sin ninguna cobertura:
+      `clients`, `dashboard/kpis|onetable|periods`, `forecast`,
+      `parametros/export`, `portales/counts`, `portales/mappings/suggestions`,
+      `uploads`. Clase (b) parciales: `data/upload` (`findMany:177`,
+      `upload.create:251` fuera de try), `parametros/skus` (GET), `skus/[id]`
+      (DELETE), `thresholds` (PUT `upsert:68`), `conflicts`, `credentials`
+      (PUT `upsert:35`), `mappings`, `price-overrides` (PUT). Emparenta con el
+      ítem de "errores técnicos crudos" ya existente en la sección prod (auth
+      callback). **Sev: MEDIA (leak de stack + UX). Esfuerzo: M** — helper
+      `withRouteErrors()` que envuelva cada handler y mapee a `{error}` 500.
+
+- [ ] **Sin error boundaries en app/**: cero `error.tsx`, `global-error.tsx`,
+      `not-found.tsx`. Un throw en cualquier página/RSC (incluido `(dashboard)/`)
+      cae en la pantalla de error default de Next, sin estilo de la app y sin
+      404 custom. **Sev: MEDIA (UX). Esfuerzo: S.**
+
+### MEDIO — chatbot (costo/abuso)
+
+- [ ] **Prompt caching de §9.1.2 NO está configurado en código.** Grep de
+      `cacheControl`/`providerOptions`/`cache_control` en app/lib/core = CERO.
+      `streamText` en `ai/chat/route.ts:160-181` no pasa `providerOptions`. Los
+      comentarios solo garantizan que el prompt/tools son byte-estables (una
+      PRECONDICIÓN del caching, no su activación). El ahorro de costo depende de
+      que el AI Gateway cachee implícitamente — verificar en la observability
+      del gateway si de verdad hay cache hits; si no, no hay caching. **Sev:
+      MEDIA (costo). Esfuerzo: S** — setear `cache_control` en el system prompt/
+      tools vía providerOptions, o confirmar el auto-cache del gateway con
+      evidencia. (Nota: la tarea original de la sesión pedía verificar esto en
+      la observability; queda como acción pendiente, no verificable por código.)
+
+- [ ] **Sin `maxOutputTokens`/`maxTokens` ni `temperature` en el chat**
+      (`ai/chat/route.ts`, grep vacío). Largo de output ilimitado. **Sev: MEDIA
+      (costo). Esfuerzo: S.** (Complementa el rate-limit y el cap de tamaño ya
+      listados en la sección prod.)
+
+- [ ] **Sin cap de TAMAÑO de archivo en `data/upload`** — solo se computa
+      `buffer.length` para registrarlo (`route.ts:259`), nunca se rechaza por
+      tamaño. Un archivo gigante pasa entero a `XLSX.read` en memoria (agrava el
+      ítem de xlsx). **Sev: MEDIA (DoS/costo memoria). Esfuerzo: S** — cap de
+      bytes antes del parse.
+
+- [ ] **Forecast route sin try/catch ni error path sanitizado**
+      (`forecast/route.ts`): a diferencia del chat, un throw de
+      `getForecastOverview` devuelve 500 default. Subsumido por el ítem general
+      de manejo de errores de arriba; se anota por completitud. **Sev: BAJA.**
+
+- [ ] **Falta gateway key → solo `CHAT_ERROR` opaco** (`ai/chat/route.ts:185`),
+      sin pre-check de que `AI_GATEWAY_API_KEY` exista al boot. El usuario ve un
+      error genérico sin distinguir config vs transitorio. Recordatorio operativo
+      ya registrado en el handoff B5 (agregar la key en Vercel). **Sev: BAJA.
+      Esfuerzo: S.**
 
 ## Pendiente-por-archivo
 

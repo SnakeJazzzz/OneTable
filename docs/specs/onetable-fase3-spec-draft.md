@@ -15,8 +15,8 @@ credenciales reales (no solo `username`) y a tratarlas con disciplina criptográ
 Fuera de esa premisa, Fase 3 también va a incluir:
 - Migración de marca múltiple si la tracción de Fase 2 lo justifica (levantar la regla
   "1 Client por cuenta").
-- Build del modelo de forecasting (heredado del diseño en `onetable-fase2-spec.md §9.2`)
-  cuando las series acumulen ≥ 3 meses.
+- Build del modelo de forecasting (heredado del diseño en
+  `docs/archive/fase2/onetable-fase2-spec.md §9.2`) cuando las series acumulen ≥ 3 meses.
 - Posible upgrade de gestión de claves a KMS si el volumen de clientes lo justifica.
 
 ---
@@ -92,15 +92,17 @@ columna `hasPasswordPending` que viene de Fase 1/2 se conserva como flag de UX.
 Las siguientes decisiones de Fase 2 quedaron diseñadas pero con build deferido a Fase 3 o
 posterior, y deben revisarse cuando este draft pase a brainstorming:
 
-- **Forecasting (`onetable-fase2-spec.md §9.2`):** diseño congelado (gate en query,
+- **Forecasting (`docs/archive/fase2/onetable-fase2-spec.md §9.2`):** diseño congelado (gate en query,
   discriminated union forecast|insufficient, baseline MA-3, gate por
   cliente × producto × cadena ≥ 3 meses). Build cuando alguna serie acumule la profundidad.
   Probablemente Fase 2.5; si llega tarde, cae en Fase 3.
 
 - **Multi-marca por cuenta:** Fase 2 fuerza 1 Client por cuenta en la capa de app
-  (sin constraint de schema). Habilitar multi-marca = remover el helper
-  `getCurrentClient()` y exponer UI de selección de Client. Sin migración de data. Decidir
-  en Fase 3 si se prioriza.
+  (sin constraint de schema). El mecanismo real (verificado 2026-07-17): el `clientId`
+  viaja en el JWT de sesión y `requireAuth()` (`lib/auth-helpers.ts`) lo extrae; ningún
+  endpoint acepta clientId del request. Habilitar multi-marca = poner la selección de
+  Client en la sesión (UI de selector + claim en el JWT) en vez del 1-a-1 fijado al login.
+  Sin migración de data. Decidir en Fase 3 si se prioriza.
 
 - **Bulk-assign mapeos a escala (mapeo manual de Chedraui):** anotado en Fase 2 §5 como
   concern. Si en Fase 3 hay clientes de ≥ 50 SKUs, construir una herramienta de

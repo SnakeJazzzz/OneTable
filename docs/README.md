@@ -20,7 +20,6 @@ quedó vacía en B-4 al archivarse todo su contenido y muere con ese commit.)
 
 | Archivo | Qué es | Cuándo se consulta |
 |---|---|---|
-| `specs/onetable-fase2-spec.md` | **Fuente única de verdad** de Fase 2: decisiones, schema, flujos, orden B0→B6. Ante divergencia, la spec gana. | Al arrancar cualquier task de Fase 2. |
 | `specs/onetable-fase3-spec-draft.md` | Diseño congelado de lo diferido a Fase 3 (AES-GCM, multi-marca, forecasting). | Al evaluar si algo "va ahora o va a Fase 3". |
 | `specs/viks-data/README.md` | Particularidades de los archivos reales de cada portal (parsers). | Al tocar parsers o depurar un archivo de VIKS. |
 | `adr/ADR-001-branch-protection-off-during-setup.md` | Por qué branch protection estuvo OFF durante el setup (hoy está ON). | Arqueología de decisiones. |
@@ -29,8 +28,14 @@ quedó vacía en B-4 al archivarse todo su contenido y muere con ese commit.)
 ## Registro histórico
 
 - `archive/fase1/` — spec y plan del demo ANTAD (Fase 1).
+- `archive/fase2/` — spec de Fase 2 (cerrada 2026-07-16, bloques B0-B5;
+  B6 quedó fuera, bloqueado por archivos reales). Era la fuente única de
+  verdad de Fase 2; hoy se consulta para el "por qué", no para estado
+  presente. §9.2 (forecasting) y §12/B6 siguen citándose desde el draft
+  de Fase 3 como diseño congelado.
 - `archive/fase2-bloques/` — planes y design docs de bloques de Fase 2 ya
-  ejecutados (B0 plan+design, B1, B2, B3, B4).
+  ejecutados (B0 plan+design, B1, B2, B3, B4; B5 no tuvo plan en docs/,
+  sus briefs viven en `.superpowers/sdd/`).
 - `handoff/` — todos los handoffs de sesión (ver su README).
 
 ## Regla de tránsito
