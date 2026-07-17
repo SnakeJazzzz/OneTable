@@ -36,3 +36,12 @@ Formato: archivo — qué cierra — commit/PR asociado.
   + B-4, 5 commits en `feat/b5-money`, suite 277/277) — viaja en el commit
   de B-4; el PR del bloque queda abierto para merge de Michael. Próximo
   bloque: hardening (scope en `.superpowers/sdd/hardening-backlog.md`).
+- `session-b5-chatbot-t1-end.md` — bloque B5 Chatbot IA (§9.1), T1 tool
+  layer cerrado (commit `895113e` en `feat/b5-chatbot`, suite 357/357,
+  doble review + fix pass + micro-fix). Brief de T2 escrito y patcheado,
+  PENDIENTE DE FILTRO EXTERNO — no dispatchar sin el go de Michael.
+- `session-b5-chatbot-t2-end.md` — T2 del bloque B5 Chatbot cerrado (commit
+  `71502a2` en `feat/b5-chatbot`, pusheada; suite 374/374; smoke de
+  streaming pasado 2x, override eventsource-parser validado). Brief de T3
+  patcheado con gate doble por superficie, PENDIENTE DE FILTRO EXTERNO —
+  no dispatchar sin el go de Michael. El smoke de T3 cierra el bloque → PR.

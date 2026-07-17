@@ -34,6 +34,18 @@
       de precio numérico reusa el fixture `pUpdate` y deja muerta la rama
       create del test de upsert si se reordena. Desacoplar fixtures cuando
       se vuelva a tocar el archivo (tests/api/portales-price-overrides.test.ts).
+- [ ] (origen: review quality T1 B5) **Spread de `input` en los execute de
+      `core/ai/tools/` propaga claves no declaradas** hacia los params de
+      query si se bypassea la validación del SDK. Defensa de tercera capa:
+      construir los params explícitamente por clave. Hoy inocuo — los
+      schemas `.strict()` + el test de orden de inyección (ctx spread al
+      final) ya cubren; el riesgo es futuro (si una query gana un param
+      opcional, una clave inyectada en modo bypass pasaría a controlarlo).
+- [ ] (origen: review quality T1 B5) **Bloque slice/totalRows duplicado**
+      entre `get-onetable-rows.ts` y `get-days-of-inventory.ts` (cap D-1 +
+      `totalRows` + `rows.slice`): dedup en un helper compartido (p.ej.
+      `capRows(rows, limit)` en `core/ai/tools/context.ts`, donde ya viven
+      los schemas y helpers) la próxima vez que se toque el módulo.
 
 ## Hooks / UI
 
@@ -84,6 +96,15 @@
 - [ ] (origen: pendiente #2 de CLAUDE.md, confirmado inexistente
       2026-07-15) **Segunda Neon branch para preflight DB** — junto con la
       DB de prod separada; necesaria solo si se reusa scripts/preflight.ts.
+- [ ] (origen: brief T1 B5 §6, diferido por decisión) **Rate limiting por
+      usuario del chat IA** (`/api/ai/chat`): cada mensaje dispara hasta 5
+      steps de modelo + queries; sin límite por usuario el costo es
+      open-ended. Diseñar junto con el resto de límites de prod.
+- [ ] (origen: review quality T2 B5) **Cap de TAMAÑO en el chat IA**
+      (`/api/ai/chat`): el cap C1 acota CANTIDAD de mensajes (30) pero no
+      TAMAÑO por mensaje — un mensaje de megabytes pasa entero al modelo.
+      Evaluar cap de bytes/chars por mensaje o por ventana cuando se haga
+      el hardening del chat (junto con el rate limiting del ítem anterior).
 
 ## Infra de tests
 
@@ -110,6 +131,15 @@
       `vitest.config.ts` (commit b6348e8). Only needed if concurrent local
       suites are ever run; CI never needs it.
 
+
+- [ ] (origen: re-review quality T1 B5, 2026-07-16) **Flush de microtasks
+      mágico en el test de concurrencia de cuts** (`tests/ai/tools.test.ts`):
+      el test hace flush de 5 iteraciones de microtasks, número acoplado a la
+      profundidad actual de awaits del código bajo test — si la cadena de
+      awaits crece, el test puede volverse flaky/falso-verde. Reemplazar por
+      un gate determinista (promise diferida que los dos paths awaiten) si se
+      vuelve a tocar el archivo.
+
 ## Pre-lanzamiento
 
 - [ ] (origen: decisión de Michael 2026-07-15, cierre del pendiente Emerald
@@ -119,6 +149,52 @@
       `160 84% 39%` del brainstorm quedó descartado) y el bloque `.dark`
       inexistente (hoy dark-first vía `:root`, sin modo claro). Solo si/
       cuando haya pasada de identidad visual; no es deuda de la beta.
+
+
+- [ ] (origen: smoke T2 B5, observación de producto, 2026-07-16)
+      **`getDefaultPeriod` prefiere el período más reciente con ≥2 cadenas
+      sobre uno MÁS reciente con 1 sola.** Observado en el smoke: enero 2026
+      elegido sobre marzo 2026 (que solo tiene Soriana). Comportamiento POR
+      DISEÑO (S12.1), correcto para el dashboard; para el chatbot ("¿cuánto
+      vendí este mes?") puede sorprender — el usuario puede esperar el mes
+      calendario más reciente con data, no el más rico. Re-evaluar con uso
+      real de VIKS. Pregunta de producto, NO bug.
+
+- [ ] (origen: decisión de Michael 2026-07-16, review externa del diff
+      ESTRICTA de T3 B5 / O1 del carril spec) **Pasada de copy es-MX
+      pre-lanzamiento: voseo → tuteo mexicano en TODO el copy de producto.**
+      Regla nueva del proyecto: todo el copy en español mexicano (tuteo).
+      El copy nuevo de T3 (chat-panel, forecast-card, secciones de Análisis)
+      ya se corrigió en T3 mismo. Voseo PRE-EXISTENTE detectado por grep
+      (2026-07-16), pendiente de barrido:
+      `app/api/parametros/import/route.ts:51` ("Verificá"),
+      `app/(auth)/signup/page.tsx:151` ("tenés"),
+      `app/(auth)/login/page.tsx:97` ("tenés"),
+      `app/(dashboard)/analisis/page.tsx:73` ("Subí", línea pre-T3),
+      `components/dashboard/dashboard-empty.tsx:17` ("Subí"),
+      `components/portales/chain-upload.tsx:242` ("Arrastrá o hacé"),
+      `components/portales/mapping-section.tsx:173,248` ("Seleccioná",
+      "Revisá"), `components/parametros/import-zone.tsx:186` ("Arrastrá",
+      "hacé"), `components/parametros/thresholds-form.tsx:82` ("Ingresá"),
+      `components/parametros/sku-table.tsx:347` ("Agregá", "importá").
+      Grep de re-verificación al ejecutar el barrido (la lista puede crecer
+      con bloques posteriores). Junto con la pasada de identidad visual.
+
+- [ ] (origen: smoke T3 B5, hallazgo de producto, 2026-07-16) **El chatbot
+      INVENTA cantidades cuando se le piden recomendaciones.** Observado en
+      el smoke: sugerencias de reorden con unidades específicas (150-200,
+      plan de 8,050 unidades) NO derivadas de ninguna tool, y una
+      misatribución concreta (inventario total de cadena 16,231 u presentado
+      como inventario de un producto). Los datos duros de tools fueron
+      correctos; la violación es del "never invent/estimate/extrapolate"
+      del system prompt ante preguntas de juicio. Candidato: endurecer el
+      system prompt — recomendaciones cuantitativas solo derivadas
+      aritméticamente de tool results, o negarse.
+
+- [ ] (mismo origen, menor) **Framing confuso: el modelo tituló cadenas
+      como "cuentas de la plataforma"** antes de auto-corregirse. Sin leak
+      de datos. Misma familia que el ítem anterior — resolver en el mismo
+      tuning de prompt.
 
 ## Pendiente-por-archivo
 
