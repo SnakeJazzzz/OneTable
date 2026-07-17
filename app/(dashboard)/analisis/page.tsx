@@ -10,6 +10,8 @@ import { useResetData } from '@/lib/hooks/use-reset-data';
 import { useDashboardPeriods } from '@/lib/hooks/use-dashboard-periods';
 import { PeriodSelector } from '@/components/dashboard/period-selector';
 import { OneTable } from '@/components/dashboard/onetable';
+import { ChatPanel } from '@/components/analisis/chat-panel';
+import { ForecastCard } from '@/components/analisis/forecast-card';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -171,6 +173,25 @@ export default function AnalisisPage() {
           )}
         </div>
         <OneTable periodKey={period} />
+      </section>
+
+      {/* §3.3.2 — chat over the client's data. History is in-memory only:
+          navigating away discards it (by design, no persistence). */}
+      <section className="space-y-3">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold text-foreground">Chatbot IA</h2>
+          <p className="text-sm text-muted-foreground">
+            Pregúntale a tus datos de ventas e inventario. La conversación no
+            se guarda al salir de esta página.
+          </p>
+        </div>
+        <ChatPanel />
+      </section>
+
+      {/* §9.2.3 — forecasting scaffold with the real gate counts. */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-foreground">Forecasting</h2>
+        <ForecastCard />
       </section>
 
       <ConfirmDialog

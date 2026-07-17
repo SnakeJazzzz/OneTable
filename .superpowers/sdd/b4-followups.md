@@ -260,3 +260,38 @@ Carril quality (I-1 fue a fix pass; M-4 acoplado al fix):
       Esperable no-op por el click-in-progress del spec, pero es path nuevo.
       VERIFICAR EN EL SMOKE de Michael: el picker abre UNA sola vez al
       clickear el label. Si abre dos veces, promover a fix.
+
+## B5-T3 — minors de review (logged 2026-07-16, no bloqueantes)
+
+Carril spec: COMPLIANT, cero deviations no declaradas. D1 (transitivas
+swr) y D2 (Prisma groupBy en getForecast) JUSTIFICADAS — documentadas en
+b5-chatbot-t3-review-spec.md. O1 (voseo vs "es-MX" literal del brief) a
+criterio de Michael en el smoke; el spec §9.2.3 ya usa "Tenés".
+
+Carril quality: 0 BLOCKER / 0 MAJOR / 4 MINOR → todos acá, ninguno al diff:
+
+- [ ] **M1 — indicador de tool congelado tras "Detener" mid-step**
+      (`chat-panel.tsx:48-54`): el part queda en `input-available` y la
+      burbuja muestra "Consultando tus datos…" para siempre (solo visual;
+      el historial es tolerado por `ignoreIncompleteToolCalls` en T2).
+      Candidato: render condicional por status del chat, hardening.
+- [ ] **M2 — auto-scroll pisa el scroll manual durante streaming**
+      (`chat-panel.tsx:79-82`): scrollIntoView en cada delta; si el usuario
+      scrollea arriba mid-stream, se lo arrastra al fondo. Candidato:
+      solo auto-scrollear si ya estaba al fondo (threshold), hardening.
+- [ ] **M3 — gap de test: wrap de año en nextEligible**: ningún assert
+      exacto cruza diciembre (ej. nov+dic → nextEligible 2027-01). La
+      implementación es correcta por construcción (clave lineal
+      year*12+month verificada a mano por el reviewer), pero sin test que
+      la pinnee una refactor podría romperla sin detección. Una línea de
+      test cuando se vuelva a tocar el archivo.
+- [ ] **M4 — forecast-card stale tras "Borrar todos los datos"**
+      (`forecast-card.tsx:59-77`): `router.refresh()` no re-corre el
+      efecto `[]`; consistente con el patrón pre-existente de la página
+      (mismo comportamiento que otras secciones). Resolver a nivel página
+      cuando se ataque el patrón completo, no per-card.
+- [ ] **M5 — getForecastOverview: el JOIN a Product no re-verifica
+      clientId** (origen: review externa T3 B5, 2026-07-16): el JOIN une
+      por productId sin `AND p."clientId" = sd."clientId"`. Hoy imposible
+      que difieran (mappings son por cliente), pero como defensa en
+      profundidad es una línea. Candidato al sweep de hardening.

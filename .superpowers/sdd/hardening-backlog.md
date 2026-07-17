@@ -160,6 +160,42 @@
       calendario más reciente con data, no el más rico. Re-evaluar con uso
       real de VIKS. Pregunta de producto, NO bug.
 
+- [ ] (origen: decisión de Michael 2026-07-16, review externa del diff
+      ESTRICTA de T3 B5 / O1 del carril spec) **Pasada de copy es-MX
+      pre-lanzamiento: voseo → tuteo mexicano en TODO el copy de producto.**
+      Regla nueva del proyecto: todo el copy en español mexicano (tuteo).
+      El copy nuevo de T3 (chat-panel, forecast-card, secciones de Análisis)
+      ya se corrigió en T3 mismo. Voseo PRE-EXISTENTE detectado por grep
+      (2026-07-16), pendiente de barrido:
+      `app/api/parametros/import/route.ts:51` ("Verificá"),
+      `app/(auth)/signup/page.tsx:151` ("tenés"),
+      `app/(auth)/login/page.tsx:97` ("tenés"),
+      `app/(dashboard)/analisis/page.tsx:73` ("Subí", línea pre-T3),
+      `components/dashboard/dashboard-empty.tsx:17` ("Subí"),
+      `components/portales/chain-upload.tsx:242` ("Arrastrá o hacé"),
+      `components/portales/mapping-section.tsx:173,248` ("Seleccioná",
+      "Revisá"), `components/parametros/import-zone.tsx:186` ("Arrastrá",
+      "hacé"), `components/parametros/thresholds-form.tsx:82` ("Ingresá"),
+      `components/parametros/sku-table.tsx:347` ("Agregá", "importá").
+      Grep de re-verificación al ejecutar el barrido (la lista puede crecer
+      con bloques posteriores). Junto con la pasada de identidad visual.
+
+- [ ] (origen: smoke T3 B5, hallazgo de producto, 2026-07-16) **El chatbot
+      INVENTA cantidades cuando se le piden recomendaciones.** Observado en
+      el smoke: sugerencias de reorden con unidades específicas (150-200,
+      plan de 8,050 unidades) NO derivadas de ninguna tool, y una
+      misatribución concreta (inventario total de cadena 16,231 u presentado
+      como inventario de un producto). Los datos duros de tools fueron
+      correctos; la violación es del "never invent/estimate/extrapolate"
+      del system prompt ante preguntas de juicio. Candidato: endurecer el
+      system prompt — recomendaciones cuantitativas solo derivadas
+      aritméticamente de tool results, o negarse.
+
+- [ ] (mismo origen, menor) **Framing confuso: el modelo tituló cadenas
+      como "cuentas de la plataforma"** antes de auto-corregirse. Sin leak
+      de datos. Misma familia que el ítem anterior — resolver en el mismo
+      tuning de prompt.
+
 ## Pendiente-por-archivo
 
 - [ ] **Code-skip §5.4 con archivo Amazon real** — ítem 5 del smoke de B4,

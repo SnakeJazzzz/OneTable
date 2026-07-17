@@ -40,3 +40,8 @@ Formato: archivo — qué cierra — commit/PR asociado.
   layer cerrado (commit `895113e` en `feat/b5-chatbot`, suite 357/357,
   doble review + fix pass + micro-fix). Brief de T2 escrito y patcheado,
   PENDIENTE DE FILTRO EXTERNO — no dispatchar sin el go de Michael.
+- `session-b5-chatbot-t2-end.md` — T2 del bloque B5 Chatbot cerrado (commit
+  `71502a2` en `feat/b5-chatbot`, pusheada; suite 374/374; smoke de
+  streaming pasado 2x, override eventsource-parser validado). Brief de T3
+  patcheado con gate doble por superficie, PENDIENTE DE FILTRO EXTERNO —
+  no dispatchar sin el go de Michael. El smoke de T3 cierra el bloque → PR.
