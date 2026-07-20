@@ -20,7 +20,8 @@ quedó vacía en B-4 al archivarse todo su contenido y muere con ese commit.)
 
 | Archivo | Qué es | Cuándo se consulta |
 |---|---|---|
-| `specs/onetable-fase3-spec-draft.md` | Diseño congelado de lo diferido a Fase 3 (AES-GCM, multi-marca, forecasting). | Al evaluar si algo "va ahora o va a Fase 3". |
+| `specs/onetable-hardening-plan.md` | Documento faro del bloque de hardening: scope, orden y ownership de T1-T6. Ante divergencia de scope con el backlog, el plan gana. | Al arrancar sesión o identificar el próximo task del bloque. |
+| `specs/onetable-fase3-spec-draft.md` | Diseño congelado de lo diferido a Fase 3 (AES-GCM, arquitectura de scrapers, multi-marca, forecasting). | Al evaluar si algo "va ahora o va a Fase 3". |
 | `specs/viks-data/README.md` | Particularidades de los archivos reales de cada portal (parsers). | Al tocar parsers o depurar un archivo de VIKS. |
 | `adr/ADR-001-branch-protection-off-during-setup.md` | Por qué branch protection estuvo OFF durante el setup (hoy está ON). | Arqueología de decisiones. |
 | `specs/onetable-srs-v1.docx` | SRS legacy (el proyecto se llamaba "Scopium"). | Casi nunca; contexto pre-Fase 1. |

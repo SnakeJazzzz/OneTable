@@ -21,6 +21,38 @@ Fuera de esa premisa, Fase 3 también va a incluir:
 
 ---
 
+## Arquitectura de automatización (decisiones 2026-07-20)
+
+> Decisiones cerradas por Michael (2026-07-20, arranque del bloque de hardening).
+> Fijan la arquitectura macro de los scrapers antes del brainstorm formal de Fase 3.
+
+- **Scrapers en REPO SEPARADO (decisión cerrada).** Fundamento: el contrato lo
+  definen los portales (archivo de export), no OneTable; el scraper entrega por el
+  mismo pipeline de ingestión; el UPSERT key existente hace la ingesta idempotente;
+  Playwright no corre en Vercel serverless; aislamiento total de supply chain
+  respecto del lockfile del app.
+- **Contrato de ingestión:** endpoint HTTP con auth de máquina (API token por
+  client, scoped, revocable). Diseño en brainstorm F3, build en F3.
+- **Credenciales — modelo PUSH:** `CREDENTIAL_ENCRYPTION_KEY` vive SOLO en Vercel;
+  la app descifra en memoria por job y empuja la credencial al servicio de scrapers
+  vía HTTPS con auth de servicio + token de retorno de un solo uso; NO existe
+  endpoint "dame credenciales"; el scraper nunca persiste ni loguea el password.
+  Esto RESUELVE la tensión entre §1.4 ("decrypt en el punto de uso") y §1.5 ("la
+  key vive en el app-server"): el punto de uso del decrypt es la app; el scraper
+  solo recibe el plaintext transitorio por push.
+- **Ejecución:** cola de jobs, 2-3 workers, SERIALIZADA por portal (evitar patrón
+  de bot ante el mismo portal), paralela entre portales. Cadencia: cron mensual +
+  on-demand del usuario con cap de 1 fetch/día/cliente (el cap vive en la app, que
+  es quien dispara los jobs).
+- **Hosting candidato:** Fly.io o Railway (worker chico FastAPI+Playwright, escala
+  a ~cero). GitHub Actions OK para desarrollo, NO para prod con credenciales
+  reales de clientes. AWS Lambda descartado.
+- **Pendiente para brainstorm F3:** la premisa "core/ migra a Python/FastAPI" de
+  CLAUDE.md está stale (core/ai/ quedó acoplado a AI SDK + zod + TS en B5) —
+  re-decidir o eliminar.
+
+---
+
 ## 1. Cifrado de credenciales de portal — AES-256-GCM
 
 ### 1.1 Premisa de la decisión
@@ -49,12 +81,21 @@ Fuera de esa premisa, Fase 3 también va a incluir:
 - **Plaintext: cifrar en el borde de la API apenas entra.** Antes de DB, antes de logs.
 - **El parser nunca toca credenciales.** Son dos subsystems separados.
 - **El GET de credencial nunca devuelve el password.** Solo el booleano "seteado/no".
-- **Decrypt solo en el punto de uso** (scraper), en memoria, jamás a un log.
+- **Decrypt solo en el punto de uso** — actualizado 2026-07-20: el punto de uso es
+  la APP (Vercel), que descifra en memoria por job y empuja la credencial al
+  servicio de scrapers (modelo PUSH, ver §Arquitectura de automatización). El
+  scraper recibe el plaintext transitorio, nunca lo persiste ni lo loguea.
 
 ### 1.5 Modelo de amenaza explícito
 
 - **Qué protege:** una fuga *solo de DB* no expone credenciales. El atacante necesita
-  también el app-server (donde vive la key en memoria).
+  también el app-server (donde vive la key en memoria). Actualizado 2026-07-20: la
+  key vive SOLO en Vercel; el servicio de scrapers nunca la recibe (modelo PUSH,
+  ver §Arquitectura de automatización), así que un compromiso del servicio de
+  scrapers expone las credenciales que se le empujen mientras dure el compromiso —
+  con el ciclo mensual de jobs, un compromiso persistente puede acumular las
+  credenciales de portal de todos los clientes activos — pero nunca la master key
+  ni el almacén cifrado completo de una sola vez.
 - **Qué NO protege:** un compromiso del app-server. Quien ejecute código en Vercel tiene
   la key.
 - **Por qué es el nivel correcto:** a < 10 clientes y pre-revenue. Si la tracción justifica

@@ -6,7 +6,7 @@
 
 OneTable resuelve la consolidación manual de sell-out que las PyMEs hoy hacen a mano en Excel.
 
-**Estado actual:** Fase 2 (beta con VIKS Jerky Co.). Fase 1 (demo ANTAD) deployada en Vercel.
+**Estado actual:** Bloque de HARDENING (pre-Fase 3). Fase 2 cerrada 2026-07-16; Fase 1 (demo ANTAD) deployada en Vercel.
 
 ## Stack
 
@@ -84,8 +84,10 @@ docs/             specs, plans, handoffs, ADRs
 
 - **Fase 1 — Demo ANTAD.** COMPLETA. Deployada en Vercel.
 - **Fase 2 — Beta con VIKS.** CERRADA (2026-07-16, bloques B0-B5). B6 (parsers HEB / Al Super / La Comer) quedó fuera, bloqueado por falta de archivos reales de esos portales. Spec: `docs/archive/fase2/onetable-fase2-spec.md`.
-- **Bloque de hardening — EN CURSO.** Pre-Fase 3: infraestructura (DB prod separada + backups), seguridad y deuda acumulada. Scope en `.superpowers/sdd/hardening-backlog.md`.
-- **Fase 3 — Scrapers automáticos** (Python + FastAPI + Playwright). Cifrado AES-GCM se activa acá. Draft: `docs/specs/onetable-fase3-spec-draft.md`.
+- **Bloque de hardening — EN CURSO.** Pre-Fase 3: infraestructura (entornos Neon + backups), seguridad y deuda acumulada. Scope cortado por Michael 2026-07-20 en `.superpowers/sdd/hardening-backlog.md` (sección "CORTE DE SCOPE").
+- **Fase 2.5 — Landing page + cuentas.** Landing pública + rediseño de signup/cuentas. Los pagos se difieren a post-Fase 3.
+- **Fase 3 — Scrapers automáticos** (Python + FastAPI + Playwright). Cifrado AES-GCM se activa acá. Draft: `docs/specs/onetable-fase3-spec-draft.md`. VIKS arranca uso real al terminar esta fase con todos sus portales habilitados.
+- **Lanzamiento comercial (Programa Fundadores).** SOLO después de una V1 sólida (post-Fase 3).
 - **Fase 4 — APIs directas con cadenas.** Negociar integración via API oficial con las cadenas grandes.
 - **Fase 5 — Promotoría y servicios.** Auditoría en tienda, conexión a CRM, alertas inteligentes, recomendaciones de reposición.
 

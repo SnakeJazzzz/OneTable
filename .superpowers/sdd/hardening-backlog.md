@@ -29,6 +29,78 @@
 > Los ítems de infra (DB compartida, pre-prod, preflight branch, backups) no
 > son verificables por código pero siguen vigentes por confirmación de estado.
 
+## CORTE DE SCOPE — decidido por Michael 2026-07-20
+
+> Decidido por Michael con su sparring externo (2026-07-20). Ordenado por
+> valor; cortable desde abajo. Los ítems del backlog NO incluidos en este
+> corte conservan su gate/disparador original en las secciones de abajo.
+
+1. **ENTORNOS + DEVOPS.** Branches de Neon production/staging/dev con
+   `DATABASE_URL` por entorno en Vercel (production/preview/development).
+   Backups: verificar retención PITR del plan de Neon + GitHub Action cron
+   semanal de pg_dump cifrado. El smoke de Michael sobre la URL de preview
+   del PR se vuelve gate obligatorio pre-merge (documentar la regla en
+   CLAUDE.md dentro del task). `/api/health` con check de DB + monitor
+   externo (UptimeRobot) con alerta a Michael. Piggyback: branch de
+   preflight (pendiente #2 de CLAUDE.md). Estrategia confirmada:
+   trunk-based + previews de Vercel (NO branch development permanente).
+
+2. **SEGURIDAD.** `next` 14.2.18 → 14.2.35 con protocolo supply-chain
+   completo + verificación post-bump (grep de páginas RSC que consulten DB
+   sin `requireAuth` propio — determina el blast radius real del CVE de
+   middleware; re-run de `pnpm audit` registrando los highs restantes).
+   Security headers en `next.config.mjs`: nosniff, anti-iframe
+   (frame-ancestors), Referrer-Policy, Permissions-Policy ENFORCED en
+   todos los entornos. CSP: enforced en staging/preview desde el inicio,
+   report-only en producción, flip de prod a enforced en cuanto los smokes
+   de staging estén limpios (prod no tiene usuarios reales hasta post-Fase
+   3 — decisión de Michael 2026-07-20). `session.maxAge` 24h + `updateAge`
+   ~1h (logout por ~1 día de inactividad). Auth: dummy `bcrypt.compare`
+   para email inexistente (timing) + rate limit de login por email/IP con
+   contador en Postgres + password policy (mín 10 chars, cap 72 bytes por
+   truncado de bcrypt). Cap de 10MB pre-parse en `data/upload` y
+   `parametros/import`.
+
+3. **CHATBOT.** Rate limit por usuario con contador Postgres, límite leído
+   de config por cliente (default 40/día, preparado para planes futuros) —
+   MISMO mecanismo que el rate limit de login, se construye una vez.
+   `maxOutputTokens` ~2000. Cap ~8000 chars por mensaje. Modelo YA
+   VERIFICADO por Michael en la observability del gateway (2026-07-20:
+   `anthropic/claude-haiku-4.5`, 28 requests, $0.22 — sin drift de config;
+   el costo por request es consistente con CERO caching), así que la tarea
+   restante es verificar cache hits y, si no existen, configurar
+   `cache_control`/`providerOptions` explícito. Anti-invención en system
+   prompt: recomendaciones cuantitativas SOLO derivadas aritméticamente de
+   tool results — si no puede, debe decirlo y detenerse; incluye el fix
+   del framing "cuentas de la plataforma". Cierre = smoke de Michael.
+
+4. **ROBUSTEZ / OBSERVABILIDAD.** Error boundaries (`error.tsx`,
+   `global-error.tsx`, `not-found.tsx` con estilo de la app). Sweep
+   `withRouteErrors()` + error codes/classes en los services en UNA SOLA
+   pasada por rutas (rutas clase b/c ya listadas en este backlog). Logs
+   estructurados con contexto en el error path.
+
+5. **COPY.** Barrido voseo → tuteo (greps de este backlog, re-verificar
+   al ejecutar).
+
+6. **CIERRE DEL BLOQUE.** Scanner baseline (OWASP ZAP) contra staging +
+   triage de hallazgos con Michael (fix inmediato vs "hardening .2") +
+   flip de CSP en prod a enforced.
+
+### Fuera del bloque, con destino
+
+- **xlsx build vendored del CDN** — pre-Fundadores; mitigación interim =
+  cap de 10MB (punto 2).
+- **Enumeración de signup (409 EMAIL_TAKEN)** — Fase 2.5, rediseño de
+  signup con landing/cuentas.
+- **Identidad visual** — pre-Fundadores.
+- **Sentry** — evaluar POST-sweep de errores; criterios: se escapan
+  errores en la práctica con logs+Vercel, el dep tree pasa supply-chain
+  al install, el free tier alcanza.
+- **Agente de triage de errores sobre logs** — experimento post-bloque;
+  prerequisito: logs estructurados del punto 4; el reporte es el valor,
+  el fix sigue pasando por el loop.
+
 ## Rutas / services
 
 - [ ] **Sweep de error codes/classes en services y rutas.** Incluye tres
@@ -113,9 +185,12 @@
       los 500 con shape `{error}` uniforme ya existen en las rutas de
       Portales/Parámetros — el gap es auth y páginas server-side.
 - [ ] **DB de prod separada + backups.** Hoy dev y beta comparten la Neon
-      dev DB. Antes de que VIKS cargue data real: database/branch de prod
-      separada, backups automáticos, y el trigger de "operaciones
-      destructivas requieren OK explícito" (ya en CLAUDE.md) queda activo.
+      dev DB. Database/branch de prod separada, backups automáticos.
+      Fundamento actualizado 2026-07-20: por DISEÑO (dev/tests no deben
+      poder truncar la DB que servirá prod), no por urgencia de VIKS
+      (arranca uso real post-Fase 3); el trigger de "operaciones
+      destructivas requieren OK explícito" (ya en CLAUDE.md) sigue siendo
+      el EVENTO de data real cargada.
 - [ ] **Ambiente de pre-producción** para smoke de deploys antes de
       promover a prod.
 - [ ] (origen: pendiente #2 de CLAUDE.md, confirmado inexistente
@@ -237,8 +312,12 @@
       `$transaction` de `deleteMany` de SelloutData+UnmappedProduct+Upload
       (tenant-scoped pero inmediato, sin confirmación, sin soft-delete,
       `route.ts:36-51`); disparado desde DEV borra data REAL de prod del mismo
-      cliente. `data/upload` escribe igual a la DB compartida. Trigger inminente
-      (VIKS por cargar data real). **Sev: CRÍTICA. Esfuerzo: M** (crear branch/
+      cliente. `data/upload` escribe igual a la DB compartida. Fundamento
+      actualizado 2026-07-20 (corrección de premisa de Michael): la separación
+      es por DISEÑO — dev/tests no deben poder truncar la DB que servirá
+      prod — no por urgencia de VIKS, que arranca uso real post-Fase 3; el
+      trigger de "operaciones destructivas requieren OK explícito" sigue
+      siendo el EVENTO de data real cargada. **Sev: CRÍTICA. Esfuerzo: M** (crear branch/
       DB Neon de prod, separar `DATABASE_URL` por entorno en Vercel, activar
       backups automáticos, verificar que `pnpm test` local no toque prod).
 

@@ -9,7 +9,8 @@
 **OneTable** — SaaS B2B para proveedores de retail en México. Consolida sell-out e inventario de 6 portales (Soriana, Chedraui, HEB, Al Super, La Comer, Amazon) en una tabla unificada + dashboard.
 
 **Primer cliente real:** VIKS Jerky Co.
-**Fase actual:** Bloque de HARDENING (pre-Fase 3). Fase 2 CERRADA por Michael el 2026-07-16 — bloques B0-B5 mergeados a main (último: PR #14, a5fc3ae), smoke de producción pasado (chatbot + onboarding completo en prod). B6 (parsers HEB / Al Super / La Comer) quedó FUERA de Fase 2, bloqueado por falta de archivos reales de esos portales; se retoma cuando existan. El scope candidato del hardening vive en `.superpowers/sdd/hardening-backlog.md`; el corte lo decide Michael. Fase 1 (demo ANTAD) cerrada y deployada en Vercel.
+**Fase actual:** Bloque de HARDENING (pre-Fase 3). Fase 2 CERRADA por Michael el 2026-07-16 — bloques B0-B5 mergeados a main (último: PR #14, a5fc3ae), smoke de producción pasado (chatbot + onboarding completo en prod). B6 (parsers HEB / Al Super / La Comer) quedó FUERA de Fase 2, bloqueado por falta de archivos reales de esos portales; se retoma cuando existan. El corte de scope del bloque fue decidido por Michael el 2026-07-20 y vive en `.superpowers/sdd/hardening-backlog.md` (sección "CORTE DE SCOPE"). Fase 1 (demo ANTAD) cerrada y deployada en Vercel.
+**Roadmap confirmado (Michael, 2026-07-20):** Hardening → **Fase 2.5** (landing page + cuentas; pagos se difieren a post-Fase 3) → **Fase 3** (scrapers) → lanzamiento comercial (Programa Fundadores). VIKS NO arranca uso real hasta terminar Fase 3 con todos sus portales habilitados; Fundadores sale SOLO después de una V1 sólida.
 **Repo:** github.com/SnakeJazzzz/OneTable
 **Branch de trabajo:** feature branches off `main`. **Estado actual (verificado 2026-07-15 vía `gh api .../branches/main/protection`):** branch protection ON — required status check `ci` (strict) + `enforce_admins`; force-push y delete bloqueados. Se habilitó en el pre-work B0 como estaba planeado. El hook local `block-main-writes` sigue activo como segunda capa. ADR-001 (protection OFF durante setup) queda como referencia histórica de por qué estuvo apagada.
 
@@ -27,7 +28,7 @@
 - Vercel deploy
 - Chatbot IA (desde B5): Vercel AI SDK 6 (`ai@6.0.168`, `@ai-sdk/react@3.0.170`) + zod 4, modelo `anthropic/claude-haiku-4.5` vía AI Gateway (`lib/ai/model.ts`); requiere `AI_GATEWAY_API_KEY` en Vercel
 
-**Monorepo simple.** Todo dentro de un solo Next.js. Carpeta `core/` con lógica pura sin imports de Next.js, diseñada para migrarse a Python/FastAPI en Fase 3.
+**Monorepo simple.** Todo dentro de un solo Next.js. Carpeta `core/` con lógica pura sin imports de Next.js, originalmente pensada para migrarse a Python/FastAPI en Fase 3 — premisa BAJO REVISIÓN (stale: core/ai/ quedó acoplado a AI SDK + zod + TS en B5); re-decidir en el brainstorm de Fase 3, ver draft F3 §Arquitectura de automatización.
 
 ---
 
@@ -37,16 +38,17 @@
 
 **Autoritativo para el bloque actual (hardening):**
 
-1. `.superpowers/sdd/hardening-backlog.md` — scope candidato del bloque (working doc tracked vía `git add -f`). El corte del scope lo decide Michael.
-2. `docs/specs/onetable-fase3-spec-draft.md` — diseño congelado de items diferidos a Fase 3 (AES-GCM credenciales, multi-marca eventual, build de forecasting si llega tarde).
+1. `docs/specs/onetable-hardening-plan.md` — documento faro del bloque: manda en SCOPE, ORDEN y OWNERSHIP de los tasks (T1-T6, split [CC]/[MICHAEL], gates).
+2. `.superpowers/sdd/hardening-backlog.md` — inventario de deuda + corte de scope (working doc tracked vía `git add -f`); manda en DETALLE FINO y evidencia por ítem. Ante divergencia de scope con el plan, el plan gana.
+3. `docs/specs/onetable-fase3-spec-draft.md` — diseño congelado de items diferidos a Fase 3 (AES-GCM credenciales, arquitectura de scrapers, multi-marca eventual, build de forecasting si llega tarde).
 
 **Histórico (referencia, no autoritativo — vive en `docs/archive/` y en `docs/handoff/`):**
 
-3. `docs/archive/fase2/onetable-fase2-spec.md` — spec de Fase 2 (fue la fuente única de verdad durante B0-B5; archivada al cierre 2026-07-16). Se consulta para el "por qué" de schema, flujos y decisiones de Fase 2.
-4. `docs/archive/fase2-bloques/` — planes y design docs de los bloques ejecutados de Fase 2.
-5. `docs/archive/fase1/onetable-fase1-spec.md` + `onetable-fase1-plan.md` — spec y plan del demo ANTAD. Útiles para entender por qué algunas piezas son como son (UPSERT key, NULLS NOT DISTINCT, normalizer agnóstico).
-6. `docs/handoff/` — handoffs de todas las sesiones (índice en `docs/handoff/README.md`). Registro histórico: no se editan.
-7. `docs/adr/ADR-001-branch-protection-off-during-setup.md` — por qué branch protection estuvo OFF durante el setup. Cumplida: hoy está ON (ver D8).
+4. `docs/archive/fase2/onetable-fase2-spec.md` — spec de Fase 2 (fue la fuente única de verdad durante B0-B5; archivada al cierre 2026-07-16). Se consulta para el "por qué" de schema, flujos y decisiones de Fase 2.
+5. `docs/archive/fase2-bloques/` — planes y design docs de los bloques ejecutados de Fase 2.
+6. `docs/archive/fase1/onetable-fase1-spec.md` + `onetable-fase1-plan.md` — spec y plan del demo ANTAD. Útiles para entender por qué algunas piezas son como son (UPSERT key, NULLS NOT DISTINCT, normalizer agnóstico).
+7. `docs/handoff/` — handoffs de todas las sesiones (índice en `docs/handoff/README.md`). Registro histórico: no se editan.
+8. `docs/adr/ADR-001-branch-protection-off-during-setup.md` — por qué branch protection estuvo OFF durante el setup. Cumplida: hoy está ON (ver D8).
 
 **Para particularidades de los portales (parsers):** `docs/specs/viks-data/README.md`.
 
@@ -152,7 +154,7 @@ Reglas operativas permanentes:
 
 Operaciones destructivas de DB (`migrate reset`, `drop`) NO requieren consentimiento explícito mientras no exista data real de cliente — el sistema está en construcción. A PARTIR de que VIKS (o cualquier cliente) cargue data real en la beta de Fase 2, todo reset destructivo requiere OK explícito del usuario EN EL MOMENTO, no derivado de la aprobación de un plan. El disparador es el evento (data real cargada), no una fecha.
 
-**Estado 2026-07-17: el trigger es INMINENTE** — VIKS está por cargar data real y la Neon dev/prod es COMPARTIDA (un `pnpm test` local puede truncar data que el cliente ve en prod). Por eso "DB de prod separada + backups" es el primer ítem de implementación del bloque de hardening, ya decidido por Michael. Hasta que esa separación exista, tratar TODA operación destructiva contra la DB como si el trigger ya hubiera disparado.
+**Estado 2026-07-20 (corrección de premisa, decisión de Michael):** VIKS NO arranca uso real hasta terminar Fase 3 con todos sus portales habilitados — el trigger NO es inminente. El trigger sigue siendo el EVENTO de data real cargada, no una fecha. La separación de DB (entornos Neon) sigue siendo el primer ítem de implementación del bloque, pero por DISEÑO — dev/tests no deben poder truncar la DB que servirá prod — no por urgencia de VIKS.
 
 ---
 
@@ -226,7 +228,7 @@ grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|router_init|setup
 1. Leer este `CLAUDE.md` (auto).
 2. `git log --oneline main..HEAD | head -15` para ver estado de commits desde main.
 3. Leer el handoff más reciente en `docs/handoff/` (índice en su README).
-4. **Identificar el próximo task contra `.superpowers/sdd/hardening-backlog.md`** (el corte del scope del bloque lo decide Michael; DB de prod separada + backups es el primer ítem de implementación, ya decidido).
+4. **Identificar el próximo task contra `docs/specs/onetable-hardening-plan.md`** (roadmap T1-T6; el detalle fino por ítem vive en `.superpowers/sdd/hardening-backlog.md` §CORTE DE SCOPE).
 5. Confirmar con el usuario antes de dispatchear el primer implementer.
 
 ---
