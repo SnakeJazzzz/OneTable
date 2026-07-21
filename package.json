@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:seed": "tsx scripts/seed.ts",
-    "db:reset": "prisma migrate reset --force",
+    "db:reset": "tsx scripts/db-guard.ts && prisma migrate reset --force",
     "preflight": "tsx scripts/preflight.ts",
     "typecheck": "prisma generate && tsc --noEmit"
   },

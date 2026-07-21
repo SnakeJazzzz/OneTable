@@ -56,6 +56,24 @@ loadEnvLocal();
 import { PrismaClient, type Chain } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { importCatalog } from '../core/catalog/import';
+import { checkDbGuard, DB_ENV_MARKER } from '../lib/db-guard';
+
+// DB environment guard (hardening T1): the seed TRUNCATEs every table, so it
+// must never run against the Neon production endpoint, nor against a remote
+// host lacking the explicit ONETABLE_DB_ENV=development marker. Evaluated at
+// module load so any entrypoint (pnpm db:seed, prisma db seed, imports) is
+// covered. Under vitest this re-evaluates the same inputs tests/setup.ts
+// already accepted, so it never fires mid-suite.
+{
+  const guardVerdict = checkDbGuard(
+    process.env.DATABASE_URL,
+    process.env[DB_ENV_MARKER],
+  );
+  if (!guardVerdict.allowed) {
+    console.error(`❌ ${guardVerdict.reason}`);
+    process.exit(1);
+  }
+}
 
 const ALL_CHAINS: Chain[] = [
   'SORIANA',

@@ -25,5 +25,8 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ['/((?!api/auth|_next/static|_next/image|favicon.ico).*)'],
+  // api/health is excluded so the external uptime monitor's pings skip the
+  // auth() wrapper entirely (the route is public by design and each ping
+  // would otherwise pay the session-decode cost — hardening T1).
+  matcher: ['/((?!api/auth|api/health|_next/static|_next/image|favicon.ico).*)'],
 };

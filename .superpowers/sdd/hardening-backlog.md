@@ -193,9 +193,14 @@
       el EVENTO de data real cargada.
 - [ ] **Ambiente de pre-producción** para smoke de deploys antes de
       promover a prod.
-- [ ] (origen: pendiente #2 de CLAUDE.md, confirmado inexistente
-      2026-07-15) **Segunda Neon branch para preflight DB** — junto con la
-      DB de prod separada; necesaria solo si se reusa scripts/preflight.ts.
+- [x] **OBSOLETO 2026-07-20 (decisión de Michael, T1):** (origen: pendiente
+      #2 de CLAUDE.md, confirmado inexistente 2026-07-15) ~~Segunda Neon
+      branch para preflight DB — junto con la DB de prod separada; necesaria
+      solo si se reusa scripts/preflight.ts.~~ El preflight quedó reemplazado
+      por la arquitectura de entornos de T1 (production/staging/development +
+      CI standalone con postgres efímero); `scripts/preflight.ts` es LEGACY
+      (header de advertencia agregado en T1) y NO se corre. No se crea branch
+      de preflight. Pendientes #1 y #2 de CLAUDE.md cerrados como obsoletos.
 - [ ] (origen: brief T1 B5 §6, diferido por decisión) **Rate limiting por
       usuario del chat IA** (`/api/ai/chat`): cada mensaje dispara hasta 5
       steps de modelo + queries; sin límite por usuario el costo es
@@ -448,7 +453,53 @@
       sin pre-check de que `AI_GATEWAY_API_KEY` exista al boot. El usuario ve un
       error genérico sin distinguir config vs transitorio. Recordatorio operativo
       ya registrado en el handoff B5 (agregar la key en Vercel). **Sev: BAJA.
-      Esfuerzo: S.**
+      Esfuerzo: S.** Anotación 2026-07-20 (Michael, vía T1): `AI_GATEWAY_API_KEY`
+      YA está cargada en Vercel y verificada funcionando en prod — el
+      recordatorio operativo del handoff B5 queda CERRADO. El pre-check al boot
+      sigue pendiente; este ítem permanece abierto solo por eso.
+
+## T1 follow-ups (minors de review quality, 2026-07-20)
+
+> Hallazgos MINOR del carril quality de T1 (ENTORNOS + DEVOPS) que no
+> bloquearon el commit. El MAJOR (Q-1, fail-open por case del hostname) se
+> fixeó en el fix pass del mismo gate. Detalle completo con escenarios en
+> `.superpowers/sdd/t1-entornos-review-quality.md`.
+
+- [ ] (origen: review quality T1, Q-2) **`db:reset` valida una DATABASE_URL
+      que `prisma migrate reset` no necesariamente usa**: son dos procesos;
+      el guard carga `.env.local` pero el Prisma CLI solo lee `./.env` /
+      `./prisma/.env` / shell env. Hoy convergen (no existe ni `.env` ni
+      `prisma/.env`); bypass latente si alguien agrega `prisma/.env`. Fix:
+      que `scripts/db-guard.ts` spawnee él mismo el reset heredando el env
+      validado (eliminar el `&&` y la doble fuente de verdad).
+- [ ] (origen: review quality T1, Q-3) **Matcher del middleware excluye
+      `api/health` por PREFIJO**: `api/healthz`/`api/health-*` futuras
+      bypassearían `auth()` silenciosamente (`middleware.ts:31`). Patrón
+      idéntico al pre-existente de `api/auth`; deuda latente, no bug hoy.
+      Cerrar el prefijo (`api/health$|api/health/`) cuando se toque el
+      matcher.
+- [ ] (origen: review quality T1, Q-4) **La rama de timeout de
+      `/api/health` no tiene test** (`app/api/health/route.ts:17-25`):
+      query colgada → 503 a los 5s. Agregar caso con `vi.useFakeTimers()` +
+      promesa que nunca resuelve cuando se toque el archivo.
+- [ ] (origen: review quality T1, Q-5 restante) **Matriz del guard: faltan
+      casos `postgres://` (alias de scheme) y URL whitespace-only** en
+      `tests/lib/db-guard.test.ts` (el caso de mayúsculas se agregó con el
+      fix de Q-1). Ambos hoy se comportan bien (verificado empíricamente
+      por el reviewer); los tests los clavarían contra regresiones.
+- [ ] (origen: filtro externo T1, F-1) **El hook `block-env-writes` NO
+      bloqueó una escritura accidental a `.env.example`** hecha con
+      herramientas de edición de archivos (bloquea Bash sobre `.env*`, no
+      file-edit tools). Evidencia: working tree de T1 con dos líneas en
+      blanco agregadas a `.env.example` fuera de scope (revertido en el
+      fix pass). Verificar y cerrar la cobertura del hook cuando se toque
+      `.claude/hooks/`.
+- [ ] (origen: review quality T1, Q-6) **Backup AES-256-CBC sin
+      autenticación**: `openssl enc` no soporta AEAD — un dump corrupto/
+      alterado solo se detecta al `pg_restore`. Accepted-risk del
+      constraint cero-deps. Mitigación barata: subir `sha256sum` del `.enc`
+      como segundo file del artifact y/o anotar el riesgo en el runbook
+      paso 5.
 
 ## Pendiente-por-archivo
 

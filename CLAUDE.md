@@ -32,6 +32,25 @@
 
 ---
 
+## Mapa de entornos (desde hardening T1, 2026-07-20)
+
+DB: proyecto Neon `quiet-dawn-60852807` (integración Vercel↔Neon, Postgres 17, Free tier — **PITR solo 6 horas**).
+
+| Branch Neon | Scope Vercel | Uso |
+|---|---|---|
+| `production` (default) | Production | Deploy productivo. NUNCA accesible desde dev/tests locales (guard). |
+| `staging` (hija de production) | Preview | Smoke de PRs sobre la URL de preview. Se resetea con "Reset from parent" en Neon cuando un smoke la ensucia. NUNCA accesible desde local — guard, igual que production. |
+| `development` (hija de production) | Development + `.env.local` local | Dev local, `pnpm test`, `db:seed`, `db:reset`. |
+
+- **CI NO usa Neon:** postgres efímero en el runner (`ci.yml`), cero secrets de DB.
+- **Guard de entorno (doble mecanismo, `lib/db-guard.ts`):** blocklist por host de los endpoints de production Y staging + marker `ONETABLE_DB_ENV=development` obligatorio para hosts remotos no-locales; `localhost` pasa sin marker (por eso CI sigue verde). Cubre `tests/setup.ts`, `scripts/seed.ts` y `pnpm db:reset` (vía `scripts/db-guard.ts`). Production y staging se bloquean SIEMPRE, con o sin marker (staging se repone con "Reset from parent" en la consola de Neon, decisión de Michael 2026-07-20).
+- **Backups:** `.github/workflows/backup.yml` — `pg_dump` DIARIO cifrado de production, artifacts con retención 7 días. Es el RESPALDO PRIMARIO (el PITR del Free tier no alcanza). Secrets: `BACKUP_DATABASE_URL` + `BACKUP_ENCRYPTION_KEY`.
+- **Health:** `GET /api/health` público (`{status, db}`, excluido del matcher del middleware), monitoreado por UptimeRobot.
+- `scripts/preflight.ts` es **LEGACY** (obsoleto por esta arquitectura, decisión de Michael 2026-07-20): NO correr — trunca la DB y no tiene guard.
+- Setup humano paso a paso: `docs/runbooks/t1-entornos-runbook.md`.
+
+---
+
 ## Documentos fuente de verdad (leer en este orden si arrancás fresh)
 
 **El mapa completo de docs/ (qué manda, qué es historia, cómo transita) vive en `docs/README.md`.**
@@ -133,6 +152,9 @@ Por task:
 
 Gates: ESTRICTO (diff a Michael ANTES de commit — data layer, queries de
 KPIs, alto blast-radius) vs UI GATE (cierre = smoke visual de Michael, no CI).
+Regla adicional (desde hardening T1, 2026-07-20): el smoke de Michael sobre
+la URL de PREVIEW de Vercel del PR es OBLIGATORIO pre-merge para todo PR (la
+preview corre contra la branch `staging` de Neon — ver Mapa de entornos).
 
 Reglas operativas permanentes:
 - Merges: SOLO Michael (gh pr merge N --squash --delete-branch).
@@ -209,10 +231,10 @@ grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|router_init|setup
 
 ## Pendientes conocidos del usuario (recordar cuando aplique)
 
-> Auditados uno por uno contra el repo el 2026-07-15 (B-4). Re-verificados 2026-07-17 al cierre de Fase 2: #1 (PREFLIGHT sigue faltando en `.env.example`), #3 (key `prisma` sigue en `package.json:17`) y el pendiente de #4 (`check-supply-chain.sh` sigue sin `set -euo pipefail`) continúan vigentes. Los tachados quedan como registro.
+> Auditados uno por uno contra el repo el 2026-07-15 (B-4). Re-verificados 2026-07-17 al cierre de Fase 2: #1 (PREFLIGHT sigue faltando en `.env.example`), #3 (key `prisma` sigue en `package.json:17`) y el pendiente de #4 (`check-supply-chain.sh` sigue sin `set -euo pipefail`) continúan vigentes. Los tachados quedan como registro. Actualización 2026-07-20 (hardening T1): #1 y #2 cerrados como OBSOLETOS.
 
-1. **`PREFLIGHT_DATABASE_URL` no agregado a `.env.example`** — hook `block-env-writes` bloqueó la edición. **Re-verificado 2026-07-15: sigue faltando** (`grep PREFLIGHT .env.example` → vacío). Si Fase 2 reusa el preflight script, agregar manualmente.
-2. **Segunda Neon branch para preflight DB** — confirmado por Michael 2026-07-15: NO existe. Va en el bloque de hardening de infraestructura pre-lanzamiento (ver hardening-backlog.md). Necesaria solo si se reusa el preflight script.
+1. ~~**`PREFLIGHT_DATABASE_URL` no agregado a `.env.example`** — hook `block-env-writes` bloqueó la edición. **Re-verificado 2026-07-15: sigue faltando** (`grep PREFLIGHT .env.example` → vacío). Si Fase 2 reusa el preflight script, agregar manualmente.~~ **CERRADO COMO OBSOLETO (decisión de Michael, 2026-07-20, hardening T1)**: el preflight quedó reemplazado por la arquitectura de entornos (staging fija para previews + CI standalone con postgres efímero); `scripts/preflight.ts` es LEGACY y no se corre — la var ya no se agrega.
+2. ~~**Segunda Neon branch para preflight DB** — confirmado por Michael 2026-07-15: NO existe. Va en el bloque de hardening de infraestructura pre-lanzamiento (ver hardening-backlog.md). Necesaria solo si se reusa el preflight script.~~ **CERRADO COMO OBSOLETO (decisión de Michael, 2026-07-20, hardening T1)**: misma decisión que #1 — no se crea branch de preflight; las branches reales son `production`/`staging`/`development` (ver Mapa de entornos).
 3. **Prisma deprecation warning** sobre `package.json#prisma` — **re-verificado 2026-07-15: la key sigue en `package.json:17`**, Prisma sigue en 6.19.3 (deprecated en Prisma 7, migra a `prisma.config.ts`). Diferido — decidir en el bloque de hardening o al subir de major.
 4. **G2 Step 0 follow-ups** (typecheck script HECHO en `package.json:15`) — re-verificados 2026-07-15:
    - ~~Tokens shadcn faltantes~~ **HECHO**: `--card`, `--popover`, `--accent`, `--destructive`, `--secondary`, `--input`, `--ring`, `--radius` existen todos en `app/globals.css:9-26`.
