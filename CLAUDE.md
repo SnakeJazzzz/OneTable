@@ -164,6 +164,13 @@ Reglas operativas permanentes:
   "vitest|pnpm test"); jamás dos procesos de test contra la Neon dev DB
   compartida; avisar a Michael antes de correr la suite (puede tener
   pnpm dev activo).
+- Cero shells de background vivas al cerrar el turno. Los loops de
+  polling (until/watch/sleep-retry) están PROHIBIDOS para comandos que
+  puedan requerir auth interactiva o abrir el navegador (vercel, gh
+  auth, open); la verificación de deploys la hace Michael, o CC con UN
+  chequeo puntual cuando se le pida. (Incidente 2026-07-29: loops de
+  `until vercel …` con CLI sin auth dispararon device-login flows que
+  llenaron el Chrome de Michael de pestañas de login.)
 - Prompts a subagents: autocontenidos o apuntando a archivos del repo. Las
   sesiones se /clear-ean; nada vive en memoria entre bloques.
 - Mensajes de commit sin referencias falsas de spec; tasks post-plan citan

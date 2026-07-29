@@ -491,6 +491,17 @@
       `tests/lib/db-guard.test.ts` (el caso de mayúsculas se agregó con el
       fix de Q-1). Ambos hoy se comportan bien (verificado empíricamente
       por el reviewer); los tests los clavarían contra regresiones.
+- [x] (incidente 2026-07-29, detectado por Michael) **Shells de
+      background de CC con loops `until vercel …` dispararon device-login
+      flows del CLI sin auth**, llenando el Chrome de Michael de pestañas
+      de login de Vercel (user_code visible; ningún login completado).
+      Resolución: shells matadas y verificadas con ps (cero procesos);
+      regla nueva en CLAUDE.md (reglas operativas): prohibidos los loops
+      de polling sobre comandos que puedan requerir auth interactiva o
+      abrir el navegador; cero shells de background vivas al cerrar el
+      turno; el CLI de vercel NO se usa en esta máquina (sin auth, y no
+      se autentica como side-effect — decisión explícita de Michael si
+      algún día hace falta).
 - [ ] (origen: handoff externo pasos 1-2, filtrado, 2026-07-29) **Vars
       legacy de la integración Neon (`DATABASE_URL_UNPOOLED`,
       `POSTGRES_*`, `PG*`) siguen administradas apuntando a PRODUCTION en
