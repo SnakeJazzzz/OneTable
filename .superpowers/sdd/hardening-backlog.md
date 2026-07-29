@@ -93,6 +93,10 @@
   cap de 10MB (punto 2).
 - **Enumeración de signup (409 EMAIL_TAKEN)** — Fase 2.5, rediseño de
   signup con landing/cuentas.
+- **Integración del dominio `onetable.mx`** (comprado 2026-07-27) — Fase
+  2.5, tarea propia con smoke. Decisiones abiertas: apex vs www canónico,
+  scope Production-only, DNS del registrar .mx (A/CNAME manual vs
+  nameservers a Vercel).
 - **Identidad visual** — pre-Fundadores.
 - **Sentry** — evaluar POST-sweep de errores; criterios: se escapan
   errores en la práctica con logs+Vercel, el dep tree pasa supply-chain
@@ -487,6 +491,21 @@
       `tests/lib/db-guard.test.ts` (el caso de mayúsculas se agregó con el
       fix de Q-1). Ambos hoy se comportan bien (verificado empíricamente
       por el reviewer); los tests los clavarían contra regresiones.
+- [ ] (origen: handoff externo pasos 1-2, filtrado, 2026-07-29) **Vars
+      legacy de la integración Neon (`DATABASE_URL_UNPOOLED`,
+      `POSTGRES_*`, `PG*`) siguen administradas apuntando a PRODUCTION en
+      los 3 scopes de Vercel.** Inerte hoy (el código solo lee
+      `DATABASE_URL`); footgun si un futuro `directUrl` de Prisma o script
+      lee una legacy → volvería a prod en silencio. Opciones al tocarlo:
+      re-scopearlas a Production-only o eliminarlas del sync.
+- [ ] (mismo origen) **Confirmar explícitamente el toggle de
+      preview-branching OFF** en la config de la integración Neon (la
+      evidencia empírica lo sugiere — preview resuelve a la branch staging
+      fija; falta ver el toggle).
+- [ ] (mismo origen) **Si el dry-run del backup falla con error de channel
+      binding en el runner**, remover `channel_binding=require` del secret
+      `BACKUP_DATABASE_URL` y dejar `sslmode=require` (nota también en el
+      handoff `session-t1-pasos-1-2.md`).
 - [ ] (origen: filtro externo T1, F-1) **El hook `block-env-writes` NO
       bloqueó una escritura accidental a `.env.example`** hecha con
       herramientas de edición de archivos (bloquea Bash sobre `.env*`, no

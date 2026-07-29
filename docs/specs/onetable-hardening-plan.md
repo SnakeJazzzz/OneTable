@@ -21,6 +21,11 @@ Roadmap global (detalle en `CLAUDE.md` §Identidad del proyecto): Hardening →
 Fase 2.5 (landing + cuentas) → Fase 3 (scrapers) → lanzamiento Fundadores;
 VIKS arranca uso real post-Fase 3.
 
+Nota Fase 2.5 (2026-07-29): dominio `onetable.mx` COMPRADO (2026-07-27);
+su integración a Vercel se difiere a Fase 2.5 como tarea propia con smoke
+(decisiones abiertas: apex vs www canónico, scope Production-only, DNS del
+registrar .mx — A/CNAME manual vs nameservers a Vercel).
+
 ---
 
 ## 2. Registro de decisiones del bloque (2026-07-20)

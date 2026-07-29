@@ -63,3 +63,9 @@ Formato: archivo — qué cierra — commit/PR asociado.
   superficie (auth, headers/errores, chatbot, `pnpm audit`: next crítico,
   xlsx high, DB compartida). Corte de scope pendiente de Michael; primer
   ítem ya decidido: DB de prod separada + backups.
+- `session-t1-pasos-1-2.md` — T1 pasos 1-2 del runbook ejecutados por
+  Michael (env vars por scope en Vercel verificadas empíricamente con
+  `env pull`; secrets del backup en GitHub) + correcciones a claims de un
+  handoff externo + trade-off de rotación manual aceptado + dominio
+  onetable.mx comprado (integración → Fase 2.5) — docs-only al branch del
+  PR #15.

@@ -85,6 +85,17 @@ El objetivo: cada scope de Vercel usa su branch de Neon.
 En ambas opciones: redeploy de production después del cambio para confirmar
 que nada se rompió (el valor efectivo de Production no debe cambiar).
 
+**Ejecutado 2026-07-29 (variante de la opción 2):** se borró SOLO la
+`DATABASE_URL` administrada por la integración y se crearon 3 entradas
+manuales por scope (pooled, Sensitive OFF — Sensitive rompe `env pull` y
+Vercel lo prohíbe en Development), + marker `ONETABLE_DB_ENV=development`
+en scope Development. Verificado con `vercel env pull` por ambiente.
+
+**Nota de mantenimiento (trade-off aceptado):** la integración ya NO
+propaga rotaciones de credenciales de `DATABASE_URL`. Si rotas credenciales
+en Neon, replica el cambio A MANO en los 3 scopes de Vercel + el secret
+`BACKUP_DATABASE_URL` de GitHub.
+
 ---
 
 ## Paso 2 — Secrets del backup en GitHub
