@@ -52,15 +52,20 @@ dejar `sslmode=require`. (Espejo en el ledger.)
   (`tests/setup.ts`, `scripts/seed.ts`, `scripts/db-guard.ts`); nada de eso
   se ejecuta en builds ni en runtime de Vercel.
 
-**Ambiente custom "Pre-production" en Vercel (hallazgo post-pasos, resuelto):**
-Michael confirmó con screenshot que en Vercel existía un ambiente CUSTOM
-"Pre-production", de origen no rastreado (probablemente creado por el chat
-externo durante los pasos 1-2; nuestro flujo nunca lo creó). Michael lo
-verificó vacío — sin branch asignada ni vars propias — y lo BORRÓ el
-2026-07-29. Razón de la decisión: el diseño T1 es trunk-based + preview
-contra staging fija; el ítem de pre-producción del backlog quedó fuera del
-corte — si algún día se quiere pre-prod real, se crea con intención y con
-branch de Neon propia.
+- **El ambiente "Pre-production (custom)" NO existe** — el handoff externo
+  lo listó como ambiente existente de Vercel; claim erróneo: leyó una
+  opción del dropdown de FILTROS de la página de Environment Variables
+  como si fuera un ambiente real del proyecto. Verificado por Michael con
+  screenshots (2026-07-29): Settings → Environments solo muestra
+  Production, Preview y Development; "Pre-production" tampoco aparece como
+  opción de scope al crear env vars — es UI de Vercel, no un ambiente del
+  proyecto. Nadie creó ni borró nada. (Una versión previa de este handoff,
+  commiteada en da7797a, registró el claim como "ambiente custom de origen
+  no rastreado, borrado por Michael" — también incorrecto; este párrafo es
+  la corrección factual.) Contexto de diseño: no existe ni se necesita
+  pre-prod como ambiente de Vercel — el diseño T1 es trunk-based + preview
+  contra staging fija; pre-prod real se crearía con intención y con branch
+  de Neon propia.
 
 ## 4. Ítems nuevos al ledger (registrados en esta sesión)
 
