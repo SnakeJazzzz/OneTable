@@ -491,6 +491,23 @@
       `tests/lib/db-guard.test.ts` (el caso de mayúsculas se agregó con el
       fix de Q-1). Ambos hoy se comportan bien (verificado empíricamente
       por el reviewer); los tests los clavarían contra regresiones.
+- [x] (smoke preview T1, H1, 2026-07-29) **`AUTH_URL` mal configurada por
+      scope en Vercel (pre-existente, 18-may)** — Preview tenía el string
+      `$VERCEL_URL` literal sin interpolar (signOut → NXDOMAIN) y
+      Production apuntaba a `onetable.vercel.app`, dominio de un TERCERO
+      (el proyecto vive en `onetable-gold.vercel.app`) — el redirect del
+      middleware sin sesión mandaba ahí (superficie menor de phishing).
+      RESUELTO por Michael (config-only): Production →
+      `https://onetable-gold.vercel.app`; Preview → entrada ELIMINADA
+      (`trustHost: true` deriva el host del request); `.env.example`
+      corregido a mano. Detalle en handoff `session-t1-pasos-1-2.md` §7.
+- [ ] (smoke preview T1, H3, 2026-07-29) **Chatbot en preview: error
+      opaco** ("Ocurrió un error al procesar tu pregunta"). Hipótesis:
+      `AI_GATEWAY_API_KEY` sin scope Preview; Michael revisó/corrigió el
+      scope. CIERRE = re-test del chat sobre la preview regenerada
+      post-push. Si el re-test falla: siguiente paso = diagnóstico por
+      logs del deploy de preview, se resuelve en T3 (NO bloquea el merge
+      de T1 — decisión de Michael). Si el re-test pasa, marcar [x].
 - [x] (incidente 2026-07-29, detectado por Michael) **Shells de
       background de CC con loops `until vercel …` dispararon device-login
       flows del CLI sin auth**, llenando el Chrome de Michael de pestañas

@@ -91,3 +91,59 @@ Vercel). Registrado en el plan de hardening (§1 roadmap) y en el backlog.
   post-merge.
 - (c) Backup dry-run: post-merge (secrets ya cargados).
 - Pendiente también: UptimeRobot (paso 3, post-merge) y merge (solo Michael).
+
+## 7. Smoke de preview (2026-07-29)
+
+Smoke de 6 puntos de Michael sobre la preview del PR #15:
+
+1. **`/api/health`** → `{"status":"ok","db":"up"}` — **criterio (b) mitad
+   preview CERRADO.**
+2. **Login OK** con cuenta nueva creada en staging. Aclaración importante:
+   los tests NO tocaron staging — el wipe fue en development, por diseño;
+   staging conserva el snapshot de production del 2026-07-20 (Michael no
+   recordaba el password de la demo). Onboarding completo re-ejecutado OK.
+3. **Redirect incógnito:** en preview lo intercepta la Deployment
+   Protection de Vercel antes que el app (esperado — doble muro); en
+   producción el redirect del middleware SÍ disparó pero a dominio
+   equivocado → H1.
+4. **Dashboard con data OK.**
+5. **Portales y Análisis OK; chatbot ERROR** → H3.
+6. **Data de prueba quedó en staging** (se limpia con "Reset from parent"
+   cuando Michael quiera).
+
+### Hallazgos (PRE-EXISTENTES de configuración, fechados 18-may en Vercel; ninguno introducido por el PR — el smoke sobre preview los sacó a la luz por primera vez)
+
+**H1 — `AUTH_URL` mal configurada por scope (root cause de dos síntomas) —
+RESUELTO por Michael (2026-07-29, config-only en Vercel):**
+
+- (a) signOut en preview redirigía a `https://$vercel_url/login` LITERAL
+  (`DNS_PROBE_FINISHED_NXDOMAIN`) — el valor del scope Preview era el
+  string `$VERCEL_URL` sin interpolar; Vercel NO interpola valores de env
+  vars.
+- (b) En producción, `/dashboard` sin sesión redirigía a
+  `https://onetable.vercel.app/login` — dominio que NO pertenece al
+  proyecto (el proyecto vive en `onetable-gold.vercel.app`;
+  `onetable.vercel.app` es de un tercero y hoy sirve un 404 ajeno) —
+  superficie menor de phishing. El comment viejo de `.env.example`
+  documentaba exactamente esa config rota.
+- Resolución: Production `AUTH_URL=https://onetable-gold.vercel.app`;
+  scope Preview: entrada `AUTH_URL` ELIMINADA por completo (`auth.ts`
+  tiene `trustHost: true` → NextAuth deriva el host del request en cada
+  preview); Development intacta (`localhost:3000`). `.env.example`:
+  comment corregido a mano por Michael.
+- Nota técnica: el login normal nunca se rompió porque el form postea
+  same-host; `AUTH_URL` solo gobierna URLs absolutas (signOut, redirect
+  del middleware) — flujos que nunca se habían smokeado antes.
+
+**H3 — Chatbot en preview: error opaco al preguntar** ("Ocurrió un error
+al procesar tu pregunta"). Hipótesis principal: `AI_GATEWAY_API_KEY` sin
+el scope Preview. Michael revisó el scope en Vercel y lo corrigió si
+faltaba; el CIERRE de H3 es el re-test del chat sobre la preview
+regenerada (los cambios de env vars solo aplican a deployments nuevos).
+Si el re-test sigue fallando: H3 queda abierto en el ledger con siguiente
+paso = diagnóstico por logs del deploy de preview; se resuelve en T3 (no
+bloquea el merge de T1 — decisión de Michael).
+
+**Regla nueva del gate de preview (decisión de Michael, 2026-07-29,
+registrada en CLAUDE.md):** los commits docs-only posteriores al smoke NO
+lo invalidan — el smoke ata al código que corre, no a los docs.

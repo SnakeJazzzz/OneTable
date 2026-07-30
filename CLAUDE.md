@@ -155,6 +155,8 @@ KPIs, alto blast-radius) vs UI GATE (cierre = smoke visual de Michael, no CI).
 Regla adicional (desde hardening T1, 2026-07-20): el smoke de Michael sobre
 la URL de PREVIEW de Vercel del PR es OBLIGATORIO pre-merge para todo PR (la
 preview corre contra la branch `staging` de Neon — ver Mapa de entornos).
+Los commits docs-only posteriores al smoke NO lo invalidan — el smoke ata al
+código que corre, no a los docs (decisión de Michael, 2026-07-29).
 
 Reglas operativas permanentes:
 - Merges: SOLO Michael (gh pr merge N --squash --delete-branch).
