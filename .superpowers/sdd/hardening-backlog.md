@@ -35,7 +35,14 @@
 > valor; cortable desde abajo. Los ítems del backlog NO incluidos en este
 > corte conservan su gate/disparador original en las secciones de abajo.
 
-1. **ENTORNOS + DEVOPS.** Branches de Neon production/staging/dev con
+1. **ENTORNOS + DEVOPS.** **[COMPLETADO 2026-07-29 — PR #15 mergeado a
+   main (`936b8d1`). Gate cerrado con evidencia: (a) guard bloqueando
+   production/staging + suite verde contra development (44 archivos, 424
+   tests); (b) health 200 `{"status":"ok","db":"up"}` en preview y prod;
+   (c) backup dry-run manual post-merge con artifact descifrado y
+   `pg_restore --list` OK. UptimeRobot activo sobre `/api/health` de prod.
+   Detalle: handoff `session-t1-close.md`.]** Branches de Neon
+   production/staging/dev con
    `DATABASE_URL` por entorno en Vercel (production/preview/development).
    Backups: verificar retención PITR del plan de Neon + GitHub Action cron
    semanal de pg_dump cifrado. El smoke de Michael sobre la URL de preview
@@ -77,7 +84,10 @@
    Gateway** — la verificación de cache hits y el smoke del chat los
    requieren (hoy el gateway rechaza el modelo por billing, 403
    RestrictedModelsError; top-up pendiente de Michael). El rate limit de
-   este task es además la protección de ese saldo.
+   este task es además la protección de ese saldo. **DEPENDENCIA
+   SATISFECHA 2026-07-29 (cierre de H3): top-up de $20 USD hecho, chat
+   verificado funcionando en preview y prod. El rate limit sigue siendo
+   la protección del saldo.**
 
 4. **ROBUSTEZ / OBSERVABILIDAD.** Error boundaries (`error.tsx`,
    `global-error.tsx`, `not-found.tsx` con estilo de la app). Sweep
@@ -193,15 +203,20 @@
       Barrido: error boundaries + mensajes de usuario en rutas y páginas;
       los 500 con shape `{error}` uniforme ya existen en las rutas de
       Portales/Parámetros — el gap es auth y páginas server-side.
-- [ ] **DB de prod separada + backups.** Hoy dev y beta comparten la Neon
+- [x] **DB de prod separada + backups.** Hoy dev y beta comparten la Neon
       dev DB. Database/branch de prod separada, backups automáticos.
       Fundamento actualizado 2026-07-20: por DISEÑO (dev/tests no deben
       poder truncar la DB que servirá prod), no por urgencia de VIKS
       (arranca uso real post-Fase 3); el trigger de "operaciones
       destructivas requieren OK explícito" (ya en CLAUDE.md) sigue siendo
-      el EVENTO de data real cargada.
-- [ ] **Ambiente de pre-producción** para smoke de deploys antes de
-      promover a prod.
+      el EVENTO de data real cargada. **RESUELTO por T1 (2026-07-29):
+      entornos Neon por scope + backup diario cifrado verificado
+      restaurable — ver CORTE punto 1 y session-t1-close.md.**
+- [x] **Ambiente de pre-producción** para smoke de deploys antes de
+      promover a prod. **RESUELTO POR DISEÑO en T1: preview de Vercel
+      contra staging fija + smoke obligatorio pre-merge cumple la función
+      de pre-prod (decisión del corte: trunk-based, sin ambiente
+      adicional).**
 - [x] **OBSOLETO 2026-07-20 (decisión de Michael, T1):** (origen: pendiente
       #2 de CLAUDE.md, confirmado inexistente 2026-07-15) ~~Segunda Neon
       branch para preflight DB — junto con la DB de prod separada; necesaria
@@ -320,7 +335,7 @@
 
 ### CRÍTICO / ALTO — infra y datos
 
-- [ ] **[YA DECIDIDO — primer ítem de implementación] DB de prod separada +
+- [x] **[YA DECIDIDO — primer ítem de implementación] DB de prod separada +
       backups.** Ya estaba en "Observabilidad / prod" abajo; se eleva acá por
       severidad. Neon dev/prod COMPARTIDA: `app/api/data/reset/route.ts` hace
       `$transaction` de `deleteMany` de SelloutData+UnmappedProduct+Upload
@@ -334,6 +349,9 @@
       siendo el EVENTO de data real cargada. **Sev: CRÍTICA. Esfuerzo: M** (crear branch/
       DB Neon de prod, separar `DATABASE_URL` por entorno en Vercel, activar
       backups automáticos, verificar que `pnpm test` local no toque prod).
+      **RESUELTO por T1 (2026-07-29): entornos Neon por scope + backup
+      diario cifrado verificado restaurable — ver CORTE punto 1 y
+      session-t1-close.md.**
 
 - [ ] **`next@14.2.18` con 1 CVE crítico + 8 high (`pnpm audit`).** El crítico
       es **Authorization Bypass in Next.js Middleware** (patched ≥14.2.25) —
@@ -471,6 +489,10 @@
       gateway rechaza el modelo por billing (403 RestrictedModelsError,
       free tier restringido post-16-jul); el chatbot de prod está roto
       hasta el top-up de créditos (ver ítem H3 en T1 follow-ups).
+      **Anotación 2026-07-29 (cierre de H3): top-up hecho, chat
+      verificado funcionando en preview y prod — el claim vuelve a ser
+      cierto. El pre-check al boot sigue pendiente; el ítem permanece
+      abierto solo por eso.**
 
 ## T1 follow-ups (minors de review quality, 2026-07-20)
 
@@ -511,7 +533,7 @@
       `https://onetable-gold.vercel.app`; Preview → entrada ELIMINADA
       (`trustHost: true` deriva el host del request); `.env.example`
       corregido a mano. Detalle en handoff `session-t1-pasos-1-2.md` §7.
-- [ ] (smoke preview T1, H3, 2026-07-29; root cause CERRADO por logs el
+- [x] (smoke preview T1, H3, 2026-07-29; root cause CERRADO por logs el
       mismo día) **Chatbot roto en preview Y producción: AI Gateway
       rechaza con 403 `RestrictedModelsError`** ("Free tier users do not
       have access to this model") para `anthropic/claude-haiku-4.5`,
@@ -524,7 +546,10 @@
       usuarios afectados (VIKS post-F3). RESOLUCIÓN: top-up de créditos
       del gateway (billing de Michael; sin redeploy). CIERRE = re-test
       del chat post-top-up. NO bloquea el merge de T1 (decisión de
-      Michael).
+      Michael). **RESUELTO 2026-07-29: top-up de $20 USD al AI Gateway;
+      re-test de Michael con el chat FUNCIONANDO en preview y en
+      producción. La dependencia de T3 (créditos activos) queda
+      satisfecha.**
 - [ ] (smoke preview T1, menor, 2026-07-29) **`favicon.png` 404 en todos
       los deployments** (asset ausente). Cosmético — va con la pasada de
       identidad visual (Fase 2.5/pre-Fundadores).
