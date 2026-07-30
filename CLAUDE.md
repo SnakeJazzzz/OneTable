@@ -1,4 +1,4 @@
-markdown# CLAUDE.md — OneTable Project Context
+# CLAUDE.md — OneTable Project Context
 
 > Este archivo se carga automáticamente al inicio de cada sesión de Claude Code en este repo. Contiene contexto que NO debe perderse entre sesiones.
 
@@ -9,7 +9,8 @@ markdown# CLAUDE.md — OneTable Project Context
 **OneTable** — SaaS B2B para proveedores de retail en México. Consolida sell-out e inventario de 6 portales (Soriana, Chedraui, HEB, Al Super, La Comer, Amazon) en una tabla unificada + dashboard.
 
 **Primer cliente real:** VIKS Jerky Co.
-**Fase actual:** Fase 2 (beta con VIKS). Fase 1 (demo ANTAD) cerrada y deployada en Vercel.
+**Fase actual:** Bloque de HARDENING (pre-Fase 3). Fase 2 CERRADA por Michael el 2026-07-16 — bloques B0-B5 mergeados a main (último: PR #14, a5fc3ae), smoke de producción pasado (chatbot + onboarding completo en prod). B6 (parsers HEB / Al Super / La Comer) quedó FUERA de Fase 2, bloqueado por falta de archivos reales de esos portales; se retoma cuando existan. El corte de scope del bloque fue decidido por Michael el 2026-07-20 y vive en `.superpowers/sdd/hardening-backlog.md` (sección "CORTE DE SCOPE"). Fase 1 (demo ANTAD) cerrada y deployada en Vercel.
+**Roadmap confirmado (Michael, 2026-07-20):** Hardening → **Fase 2.5** (landing page + cuentas; pagos se difieren a post-Fase 3) → **Fase 3** (scrapers) → lanzamiento comercial (Programa Fundadores). VIKS NO arranca uso real hasta terminar Fase 3 con todos sus portales habilitados; Fundadores sale SOLO después de una V1 sólida.
 **Repo:** github.com/SnakeJazzzz/OneTable
 **Branch de trabajo:** feature branches off `main`. **Estado actual (verificado 2026-07-15 vía `gh api .../branches/main/protection`):** branch protection ON — required status check `ci` (strict) + `enforce_admins`; force-push y delete bloqueados. Se habilitó en el pre-work B0 como estaba planeado. El hook local `block-main-writes` sigue activo como segunda capa. ADR-001 (protection OFF durante setup) queda como referencia histórica de por qué estuvo apagada.
 
@@ -25,8 +26,28 @@ markdown# CLAUDE.md — OneTable Project Context
 - bcryptjs (no bcrypt — pure JS para Vercel)
 - Vitest (tests integration y unit)
 - Vercel deploy
+- Chatbot IA (desde B5): Vercel AI SDK 6 (`ai@6.0.168`, `@ai-sdk/react@3.0.170`) + zod 4, modelo `anthropic/claude-haiku-4.5` vía AI Gateway (`lib/ai/model.ts`); requiere `AI_GATEWAY_API_KEY` en Vercel
 
-**Monorepo simple.** Todo dentro de un solo Next.js. Carpeta `core/` con lógica pura sin imports de Next.js, diseñada para migrarse a Python/FastAPI en Fase 3.
+**Monorepo simple.** Todo dentro de un solo Next.js. Carpeta `core/` con lógica pura sin imports de Next.js, originalmente pensada para migrarse a Python/FastAPI en Fase 3 — premisa BAJO REVISIÓN (stale: core/ai/ quedó acoplado a AI SDK + zod + TS en B5); re-decidir en el brainstorm de Fase 3, ver draft F3 §Arquitectura de automatización.
+
+---
+
+## Mapa de entornos (desde hardening T1, 2026-07-20)
+
+DB: proyecto Neon `quiet-dawn-60852807` (integración Vercel↔Neon, Postgres 17, Free tier — **PITR solo 6 horas**).
+
+| Branch Neon | Scope Vercel | Uso |
+|---|---|---|
+| `production` (default) | Production | Deploy productivo. NUNCA accesible desde dev/tests locales (guard). |
+| `staging` (hija de production) | Preview | Smoke de PRs sobre la URL de preview. Se resetea con "Reset from parent" en Neon cuando un smoke la ensucia. NUNCA accesible desde local — guard, igual que production. |
+| `development` (hija de production) | Development + `.env.local` local | Dev local, `pnpm test`, `db:seed`, `db:reset`. |
+
+- **CI NO usa Neon:** postgres efímero en el runner (`ci.yml`), cero secrets de DB.
+- **Guard de entorno (doble mecanismo, `lib/db-guard.ts`):** blocklist por host de los endpoints de production Y staging + marker `ONETABLE_DB_ENV=development` obligatorio para hosts remotos no-locales; `localhost` pasa sin marker (por eso CI sigue verde). Cubre `tests/setup.ts`, `scripts/seed.ts` y `pnpm db:reset` (vía `scripts/db-guard.ts`). Production y staging se bloquean SIEMPRE, con o sin marker (staging se repone con "Reset from parent" en la consola de Neon, decisión de Michael 2026-07-20).
+- **Backups:** `.github/workflows/backup.yml` — `pg_dump` DIARIO cifrado de production, artifacts con retención 7 días. Es el RESPALDO PRIMARIO (el PITR del Free tier no alcanza). Secrets: `BACKUP_DATABASE_URL` + `BACKUP_ENCRYPTION_KEY`.
+- **Health:** `GET /api/health` público (`{status, db}`, excluido del matcher del middleware), monitoreado por UptimeRobot.
+- `scripts/preflight.ts` es **LEGACY** (obsoleto por esta arquitectura, decisión de Michael 2026-07-20): NO correr — trunca la DB y no tiene guard.
+- Setup humano paso a paso: `docs/runbooks/t1-entornos-runbook.md`.
 
 ---
 
@@ -34,17 +55,19 @@ markdown# CLAUDE.md — OneTable Project Context
 
 **El mapa completo de docs/ (qué manda, qué es historia, cómo transita) vive en `docs/README.md`.**
 
-**Autoritativo para Fase 2 (lo que se está construyendo ahora):**
+**Autoritativo para el bloque actual (hardening):**
 
-1. `docs/specs/onetable-fase2-spec.md` — **fuente única de verdad** de decisiones, schema, flujos y orden de ejecución de Fase 2. Cualquier divergencia entre otros docs y esta spec: la spec gana.
-2. `docs/specs/onetable-fase3-spec-draft.md` — diseño congelado de items diferidos a Fase 3 (AES-GCM credenciales, multi-marca eventual, build de forecasting si llega tarde).
+1. `docs/specs/onetable-hardening-plan.md` — documento faro del bloque: manda en SCOPE, ORDEN y OWNERSHIP de los tasks (T1-T6, split [CC]/[MICHAEL], gates).
+2. `.superpowers/sdd/hardening-backlog.md` — inventario de deuda + corte de scope (working doc tracked vía `git add -f`); manda en DETALLE FINO y evidencia por ítem. Ante divergencia de scope con el plan, el plan gana.
+3. `docs/specs/onetable-fase3-spec-draft.md` — diseño congelado de items diferidos a Fase 3 (AES-GCM credenciales, arquitectura de scrapers, multi-marca eventual, build de forecasting si llega tarde).
 
 **Histórico (referencia, no autoritativo — vive en `docs/archive/` y en `docs/handoff/`):**
 
-3. `docs/archive/fase1/onetable-fase1-spec.md` — spec del demo ANTAD. Útil para entender por qué algunas piezas son como son (UPSERT key, NULLS NOT DISTINCT, normalizer agnóstico).
-4. `docs/archive/fase1/onetable-fase1-plan.md` — plan ejecutable Fase 1.
-5. `docs/handoff/` — handoffs de todas las sesiones (índice en `docs/handoff/README.md`). Registro histórico: no se editan.
-6. `docs/adr/ADR-001-branch-protection-off-during-setup.md` — por qué branch protection estuvo OFF durante el setup. Cumplida: hoy está ON (ver D8).
+4. `docs/archive/fase2/onetable-fase2-spec.md` — spec de Fase 2 (fue la fuente única de verdad durante B0-B5; archivada al cierre 2026-07-16). Se consulta para el "por qué" de schema, flujos y decisiones de Fase 2.
+5. `docs/archive/fase2-bloques/` — planes y design docs de los bloques ejecutados de Fase 2.
+6. `docs/archive/fase1/onetable-fase1-spec.md` + `onetable-fase1-plan.md` — spec y plan del demo ANTAD. Útiles para entender por qué algunas piezas son como son (UPSERT key, NULLS NOT DISTINCT, normalizer agnóstico).
+7. `docs/handoff/` — handoffs de todas las sesiones (índice en `docs/handoff/README.md`). Registro histórico: no se editan.
+8. `docs/adr/ADR-001-branch-protection-off-during-setup.md` — por qué branch protection estuvo OFF durante el setup. Cumplida: hoy está ON (ver D8).
 
 **Para particularidades de los portales (parsers):** `docs/specs/viks-data/README.md`.
 
@@ -80,7 +103,7 @@ Hay un worm activo en npm desde mayo 11, 2026 ("Mini Shai-Hulud", CVE-2026-45321
 
 - **D1:** 3 portales habilitados en Fase 1 (Soriana, Chedraui, Amazon). HEB/AL SUPER/LA COMER aparecen en UI como "próximamente". Arquitectura drop-in para agregar los 3 restantes post-demo.
 - **D2:** Polish visual concentrado en Dashboard + Landing. Resto "functional, clean, minimal".
-- **D3 (revisado para Fase 2):** Multi-tenancy = 1 Client por cuenta, forzado en capa de app (helper `getCurrentClient(userId)` en `lib/tenant.ts`), no en schema. Fase 1 modeló User como agency con múltiples Clients; Fase 2 cierra el modelo a 1-a-1 sin migración de datos. Ver `onetable-fase2-spec.md §1`. Multi-marca futura = remover el check del helper.
+- **D3 (revisado para Fase 2; drift corregido 2026-07-17 con OK de Michael):** Multi-tenancy = 1 Client por cuenta, forzado en capa de app, no en schema. Mecanismo real (verificado): el `clientId` viaja en el JWT de sesión y `requireAuth()` en `lib/auth-helpers.ts` lo extrae; ningún endpoint acepta clientId del request body/query. El helper `getCurrentClient(userId)`/`lib/tenant.ts` que la spec proponía NUNCA existió (evidencia en brief T1 B5 §1.5). Fase 1 modeló User como agency con múltiples Clients; Fase 2 cerró el modelo a 1-a-1 sin migración de datos. Ver `onetable-fase2-spec.md §1`. Multi-marca futura = poner la selección de Client en la sesión en vez del 1-a-1 fijado al login.
 - **D4:** KPIs se calculan al query, NUNCA al insert. Incluye `daysOfInventory` (AJUSTE 1 al spec).
 - **D5:** Export Excel/CSV client-side con SheetJS. No server-side.
 - **D6:** Selector manual de portal en upload (no auto-detect).
@@ -90,6 +113,8 @@ Hay un worm activo en npm desde mayo 11, 2026 ("Mini Shai-Hulud", CVE-2026-45321
 ---
 
 ## Decisiones técnicas cerradas durante brainstorming
+
+> Las referencias `onetable-fase2-spec.md §…` de esta sección y de D1-D8 apuntan a `docs/archive/fase2/onetable-fase2-spec.md` (spec archivada al cierre de Fase 2).
 
 - **Upload UX (Fase 1 → revisado en Fase 2):** en Fase 1 vivió en Análisis con auto-detect del chain por filename. En Fase 2 se mueve a la card de cada portal en la página Portales, con chain implícito por la card (`onetable-fase2-spec.md §3.2.4`). Amazon usa dos inputs por separado (Ventas / Inventario).
 - **UPSERT key:** `(clientId, chain, storeId, portalRawProduct, periodYear, periodMonth)` con `NULLS NOT DISTINCT` (Postgres 15+) + `COALESCE` per campo. SQL usa `ON CONFLICT (cols)` NO `ON CONFLICT ON CONSTRAINT` (AJUSTE 5). Conservado en Fase 2.
@@ -104,7 +129,7 @@ Hay un worm activo en npm desde mayo 11, 2026 ("Mini Shai-Hulud", CVE-2026-45321
 
 ## Modo de trabajo
 
-**Subagent-driven, protocolo vigente (Fase 2, bloque B en adelante).**
+**Subagent-driven, protocolo vigente (desde Fase 2 bloque B; sigue aplicando en el bloque de hardening).**
 
 Por task:
 1. Brief/plan del task filtrado por el sparring partner de Michael ANTES de
@@ -127,6 +152,11 @@ Por task:
 
 Gates: ESTRICTO (diff a Michael ANTES de commit — data layer, queries de
 KPIs, alto blast-radius) vs UI GATE (cierre = smoke visual de Michael, no CI).
+Regla adicional (desde hardening T1, 2026-07-20): el smoke de Michael sobre
+la URL de PREVIEW de Vercel del PR es OBLIGATORIO pre-merge para todo PR (la
+preview corre contra la branch `staging` de Neon — ver Mapa de entornos).
+Los commits docs-only posteriores al smoke NO lo invalidan — el smoke ata al
+código que corre, no a los docs (decisión de Michael, 2026-07-29).
 
 Reglas operativas permanentes:
 - Merges: SOLO Michael (gh pr merge N --squash --delete-branch).
@@ -136,6 +166,13 @@ Reglas operativas permanentes:
   "vitest|pnpm test"); jamás dos procesos de test contra la Neon dev DB
   compartida; avisar a Michael antes de correr la suite (puede tener
   pnpm dev activo).
+- Cero shells de background vivas al cerrar el turno. Los loops de
+  polling (until/watch/sleep-retry) están PROHIBIDOS para comandos que
+  puedan requerir auth interactiva o abrir el navegador (vercel, gh
+  auth, open); la verificación de deploys la hace Michael, o CC con UN
+  chequeo puntual cuando se le pida. (Incidente 2026-07-29: loops de
+  `until vercel …` con CLI sin auth dispararon device-login flows que
+  llenaron el Chrome de Michael de pestañas de login.)
 - Prompts a subagents: autocontenidos o apuntando a archivos del repo. Las
   sesiones se /clear-ean; nada vive en memoria entre bloques.
 - Mensajes de commit sin referencias falsas de spec; tasks post-plan citan
@@ -147,6 +184,8 @@ Reglas operativas permanentes:
 ### Operaciones destructivas de DB
 
 Operaciones destructivas de DB (`migrate reset`, `drop`) NO requieren consentimiento explícito mientras no exista data real de cliente — el sistema está en construcción. A PARTIR de que VIKS (o cualquier cliente) cargue data real en la beta de Fase 2, todo reset destructivo requiere OK explícito del usuario EN EL MOMENTO, no derivado de la aprobación de un plan. El disparador es el evento (data real cargada), no una fecha.
+
+**Estado 2026-07-20 (corrección de premisa, decisión de Michael):** VIKS NO arranca uso real hasta terminar Fase 3 con todos sus portales habilitados — el trigger NO es inminente. El trigger sigue siendo el EVENTO de data real cargada, no una fecha. La separación de DB (entornos Neon) sigue siendo el primer ítem de implementación del bloque, pero por DISEÑO — dev/tests no deben poder truncar la DB que servirá prod — no por urgencia de VIKS.
 
 ---
 
@@ -201,10 +240,10 @@ grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|router_init|setup
 
 ## Pendientes conocidos del usuario (recordar cuando aplique)
 
-> Auditados uno por uno contra el repo el 2026-07-15 (B-4). Los tachados quedan como registro.
+> Auditados uno por uno contra el repo el 2026-07-15 (B-4). Re-verificados 2026-07-17 al cierre de Fase 2: #1 (PREFLIGHT sigue faltando en `.env.example`), #3 (key `prisma` sigue en `package.json:17`) y el pendiente de #4 (`check-supply-chain.sh` sigue sin `set -euo pipefail`) continúan vigentes. Los tachados quedan como registro. Actualización 2026-07-20 (hardening T1): #1 y #2 cerrados como OBSOLETOS.
 
-1. **`PREFLIGHT_DATABASE_URL` no agregado a `.env.example`** — hook `block-env-writes` bloqueó la edición. **Re-verificado 2026-07-15: sigue faltando** (`grep PREFLIGHT .env.example` → vacío). Si Fase 2 reusa el preflight script, agregar manualmente.
-2. **Segunda Neon branch para preflight DB** — confirmado por Michael 2026-07-15: NO existe. Va en el bloque de hardening de infraestructura pre-lanzamiento (ver hardening-backlog.md). Necesaria solo si se reusa el preflight script.
+1. ~~**`PREFLIGHT_DATABASE_URL` no agregado a `.env.example`** — hook `block-env-writes` bloqueó la edición. **Re-verificado 2026-07-15: sigue faltando** (`grep PREFLIGHT .env.example` → vacío). Si Fase 2 reusa el preflight script, agregar manualmente.~~ **CERRADO COMO OBSOLETO (decisión de Michael, 2026-07-20, hardening T1)**: el preflight quedó reemplazado por la arquitectura de entornos (staging fija para previews + CI standalone con postgres efímero); `scripts/preflight.ts` es LEGACY y no se corre — la var ya no se agrega.
+2. ~~**Segunda Neon branch para preflight DB** — confirmado por Michael 2026-07-15: NO existe. Va en el bloque de hardening de infraestructura pre-lanzamiento (ver hardening-backlog.md). Necesaria solo si se reusa el preflight script.~~ **CERRADO COMO OBSOLETO (decisión de Michael, 2026-07-20, hardening T1)**: misma decisión que #1 — no se crea branch de preflight; las branches reales son `production`/`staging`/`development` (ver Mapa de entornos).
 3. **Prisma deprecation warning** sobre `package.json#prisma` — **re-verificado 2026-07-15: la key sigue en `package.json:17`**, Prisma sigue en 6.19.3 (deprecated en Prisma 7, migra a `prisma.config.ts`). Diferido — decidir en el bloque de hardening o al subir de major.
 4. **G2 Step 0 follow-ups** (typecheck script HECHO en `package.json:15`) — re-verificados 2026-07-15:
    - ~~Tokens shadcn faltantes~~ **HECHO**: `--card`, `--popover`, `--accent`, `--destructive`, `--secondary`, `--input`, `--ring`, `--radius` existen todos en `app/globals.css:9-26`.
@@ -219,8 +258,8 @@ grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|router_init|setup
 
 1. Leer este `CLAUDE.md` (auto).
 2. `git log --oneline main..HEAD | head -15` para ver estado de commits desde main.
-3. Leer `docs/handoff/session-N-end-of-day-X.md` más reciente si existe handoff Fase 2.
-4. **Identificar el próximo bloque/task contra `docs/specs/onetable-fase2-spec.md §12`** (orden B0→B6).
+3. Leer el handoff más reciente en `docs/handoff/` (índice en su README).
+4. **Identificar el próximo task contra `docs/specs/onetable-hardening-plan.md`** (roadmap T1-T6; el detalle fino por ítem vive en `.superpowers/sdd/hardening-backlog.md` §CORTE DE SCOPE).
 5. Confirmar con el usuario antes de dispatchear el primer implementer.
 
 ---

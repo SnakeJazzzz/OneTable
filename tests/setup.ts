@@ -1,29 +1,19 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { loadEnvLocal } from '../lib/env-local';
+import { checkDbGuard, DB_ENV_MARKER } from '../lib/db-guard';
 
-const envPath = resolve(process.cwd(), '.env.local');
+loadEnvLocal();
 
-try {
-  const content = readFileSync(envPath, 'utf-8');
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIdx = trimmed.indexOf('=');
-    if (eqIdx === -1) continue;
-    const key = trimmed.slice(0, eqIdx).trim();
-    let value = trimmed.slice(eqIdx + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env)) {
-      process.env[key] = value;
-    }
-  }
-} catch {
-  // .env.local optional (e.g., CI uses real env vars instead).
+// DB environment guard (hardening T1): abort the whole suite BEFORE any test
+// touches the DB when DATABASE_URL points at the Neon production endpoint, or
+// at any remote host lacking the explicit ONETABLE_DB_ENV=development marker.
+// CI passes without the marker because its DATABASE_URL host is localhost
+// (ephemeral postgres service container — see .github/workflows/ci.yml).
+const verdict = checkDbGuard(
+  process.env.DATABASE_URL,
+  process.env[DB_ENV_MARKER],
+);
+if (!verdict.allowed) {
+  throw new Error(verdict.reason);
 }
 
 // NextAuth v5 throws at runtime if AUTH_SECRET is unset. After loading

@@ -1,4 +1,18 @@
 /**
+ * ============================================================================
+ * ⚠ LEGACY — DO NOT RUN (decision: Michael, 2026-07-20, hardening T1)
+ *
+ * This script is OBSOLETE. The environment architecture shipped in T1 (Neon
+ * branches production/staging/development + standalone CI with an ephemeral
+ * Postgres) replaces the preflight flow entirely; the planned
+ * PREFLIGHT_DATABASE_URL / dedicated preflight branch will NOT be created
+ * (CLAUDE.md pendientes #1 and #2 closed as obsolete).
+ *
+ * It TRUNCATEs whatever DB DATABASE_URL points at and it intentionally has
+ * NO environment guard — never run it against an environment holding real
+ * data. Kept for historical reference only.
+ * ============================================================================
+ *
  * scripts/preflight.ts — OneTable end-to-end pipeline validation (S11).
  *
  * Purpose: validate the full flow Parse → Normalize → UPSERT → KPI queries →

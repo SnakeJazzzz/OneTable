@@ -1,0 +1,106 @@
+name: backup
+
+# Backup diario cifrado de la DB de production de Neon (hardening T1).
+#
+# Por qué existe: el plan Free de Neon solo retiene 6 HORAS de PITR/history,
+# así que este dump diario es el RESPALDO PRIMARIO, no una segunda capa.
+#
+# Retención: 7 días de artifacts (~7 dumps). Límite práctico: el storage de
+# Actions del plan free es ~500MB y la DB pesa hoy ~36MB. Re-evaluar upgrade
+# de Neon o storage externo antes del Programa Fundadores
+# (ver docs/runbooks/t1-entornos-runbook.md, sección de riesgo).
+#
+# Secrets requeridos (los carga Michael — runbook T1, sección secrets):
+#   BACKUP_DATABASE_URL   — connection string DIRECTO (unpooled) de production.
+#                           pg_dump contra el pooler de Neon falla o degrada.
+#   BACKUP_ENCRYPTION_KEY — passphrase simétrica (`openssl rand -base64 32`).
+
+on:
+  schedule:
+    # Diario 07:17 UTC (~01:17 CDMX). Minuto con offset porque los crons "en
+    # punto" compiten con el pico de carga de GitHub y se retrasan más.
+    - cron: '17 7 * * *'
+  # Dry-run manual — criterio (c) del gate T1. Solo disponible POST-merge:
+  # GitHub lee schedule/workflow_dispatch desde la branch default.
+  workflow_dispatch:
+
+# Least-privilege para el GITHUB_TOKEN (mismo criterio que ci.yml): el
+# workflow no escribe al repo ni llama la API. Subir artifacts no requiere
+# permisos extra sobre `contents`.
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Sin actions/checkout: este workflow no usa código del repo — menos
+    # superficie y un action menos que auditar/pinear.
+    steps:
+      - name: Instalar postgresql-client-17 (repo PGDG)
+        # El server de Neon es Postgres 17; el pg_dump preinstalado del runner
+        # es de un major menor y se niega a dumpear un server más nuevo. PGDG
+        # es el repositorio APT oficial del proyecto PostgreSQL. Se invoca el
+        # binario por path absoluto para no depender del wrapper de Debian.
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Verificar secrets
+        # Falla temprano y con mensaje claro si los secrets no están cargados
+        # (útil en el primer dry-run vía workflow_dispatch).
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          if [ -z "$BACKUP_DATABASE_URL" ] || [ -z "$BACKUP_ENCRYPTION_KEY" ]; then
+            echo "::error::Faltan los secrets BACKUP_DATABASE_URL y/o BACKUP_ENCRYPTION_KEY (ver docs/runbooks/t1-entornos-runbook.md)."
+            exit 1
+          fi
+          echo "OK secrets presentes"
+
+      - name: pg_dump + cifrado
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          DUMP="onetable-${STAMP}.dump"
+          # Formato custom (-Fc): comprimido y restaurable selectivamente con
+          # pg_restore. --no-owner/--no-acl para poder restaurar con cualquier
+          # rol (el owner de Neon no existe fuera de Neon).
+          /usr/lib/postgresql/17/bin/pg_dump "$BACKUP_DATABASE_URL" \
+            -Fc --no-owner --no-acl -f "$DUMP"
+          # Cifrado simétrico con el openssl del runner — cero dependencias
+          # npm (protocolo supply chain). -pbkdf2 -iter 600000: deriva la key
+          # de la passphrase con PBKDF2 (el KDF legacy de `openssl enc` es
+          # débil). Para descifrar (mismos parámetros, runbook T1):
+          #   openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+          #     -in <archivo>.dump.enc -out <archivo>.dump \
+          #     -pass env:BACKUP_ENCRYPTION_KEY
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 600000 \
+            -in "$DUMP" -out "${DUMP}.enc" -pass env:BACKUP_ENCRYPTION_KEY
+          # Nunca subir el dump en claro.
+          rm -f "$DUMP"
+          ls -lh "${DUMP}.enc"
+
+      - name: Subir artifact cifrado
+        # Action oficial pineada por SHA de commit completo (protocolo supply
+        # chain). SHA resuelto de tags/v7.0.1 (release vigente, 2026-07-20)
+        # vía `gh api repos/actions/upload-artifact/git/ref/tags/v7.0.1`.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: onetable-db-backup-${{ github.run_id }}
+          path: onetable-*.dump.enc
+          retention-days: 7
+          if-no-files-found: error
