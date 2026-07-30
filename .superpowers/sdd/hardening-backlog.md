@@ -73,6 +73,11 @@
    prompt: recomendaciones cuantitativas SOLO derivadas aritméticamente de
    tool results — si no puede, debe decirlo y detenerse; incluye el fix
    del framing "cuentas de la plataforma". Cierre = smoke de Michael.
+   **DEPENDENCIA (2026-07-29, H3 del smoke T1): créditos activos del AI
+   Gateway** — la verificación de cache hits y el smoke del chat los
+   requieren (hoy el gateway rechaza el modelo por billing, 403
+   RestrictedModelsError; top-up pendiente de Michael). El rate limit de
+   este task es además la protección de ese saldo.
 
 4. **ROBUSTEZ / OBSERVABILIDAD.** Error boundaries (`error.tsx`,
    `global-error.tsx`, `not-found.tsx` con estilo de la app). Sweep
@@ -461,6 +466,11 @@
       YA está cargada en Vercel y verificada funcionando en prod — el
       recordatorio operativo del handoff B5 queda CERRADO. El pre-check al boot
       sigue pendiente; este ítem permanece abierto solo por eso.
+      **Anotación 2026-07-29 (H3): el claim "verificada funcionando en
+      prod" quedó STALE** — la key sigue cargada y es válida, pero el
+      gateway rechaza el modelo por billing (403 RestrictedModelsError,
+      free tier restringido post-16-jul); el chatbot de prod está roto
+      hasta el top-up de créditos (ver ítem H3 en T1 follow-ups).
 
 ## T1 follow-ups (minors de review quality, 2026-07-20)
 
@@ -501,13 +511,23 @@
       `https://onetable-gold.vercel.app`; Preview → entrada ELIMINADA
       (`trustHost: true` deriva el host del request); `.env.example`
       corregido a mano. Detalle en handoff `session-t1-pasos-1-2.md` §7.
-- [ ] (smoke preview T1, H3, 2026-07-29) **Chatbot en preview: error
-      opaco** ("Ocurrió un error al procesar tu pregunta"). Hipótesis:
-      `AI_GATEWAY_API_KEY` sin scope Preview; Michael revisó/corrigió el
-      scope. CIERRE = re-test del chat sobre la preview regenerada
-      post-push. Si el re-test falla: siguiente paso = diagnóstico por
-      logs del deploy de preview, se resuelve en T3 (NO bloquea el merge
-      de T1 — decisión de Michael). Si el re-test pasa, marcar [x].
+- [ ] (smoke preview T1, H3, 2026-07-29; root cause CERRADO por logs el
+      mismo día) **Chatbot roto en preview Y producción: AI Gateway
+      rechaza con 403 `RestrictedModelsError`** ("Free tier users do not
+      have access to this model") para `anthropic/claude-haiku-4.5`,
+      `totalProviderAttemptCount: 0` (request IDs `ncvkp-1785370096374` /
+      `mmqck-1785370101557`). La hipótesis de key sin scope Preview era
+      FALSA (key scoped a Production y Preview, screenshot de Michael).
+      Es BILLING del gateway, no config de la app: los smokes del 15-16
+      jul funcionaron ($0.22); Vercel restringió el free tier del gateway
+      (o expiraron créditos promocionales) entre esa fecha y hoy. Cero
+      usuarios afectados (VIKS post-F3). RESOLUCIÓN: top-up de créditos
+      del gateway (billing de Michael; sin redeploy). CIERRE = re-test
+      del chat post-top-up. NO bloquea el merge de T1 (decisión de
+      Michael).
+- [ ] (smoke preview T1, menor, 2026-07-29) **`favicon.png` 404 en todos
+      los deployments** (asset ausente). Cosmético — va con la pasada de
+      identidad visual (Fase 2.5/pre-Fundadores).
 - [x] (incidente 2026-07-29, detectado por Michael) **Shells de
       background de CC con loops `until vercel …` dispararon device-login
       flows del CLI sin auth**, llenando el Chrome de Michael de pestañas

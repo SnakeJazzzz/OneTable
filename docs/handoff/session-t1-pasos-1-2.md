@@ -136,13 +136,26 @@ RESUELTO por Michael (2026-07-29, config-only en Vercel):**
   del middleware) — flujos que nunca se habían smokeado antes.
 
 **H3 — Chatbot en preview: error opaco al preguntar** ("Ocurrió un error
-al procesar tu pregunta"). Hipótesis principal: `AI_GATEWAY_API_KEY` sin
-el scope Preview. Michael revisó el scope en Vercel y lo corrigió si
-faltaba; el CIERRE de H3 es el re-test del chat sobre la preview
-regenerada (los cambios de env vars solo aplican a deployments nuevos).
-Si el re-test sigue fallando: H3 queda abierto en el ledger con siguiente
-paso = diagnóstico por logs del deploy de preview; se resuelve en T3 (no
-bloquea el merge de T1 — decisión de Michael).
+al procesar tu pregunta"). Hipótesis inicial: `AI_GATEWAY_API_KEY` sin el
+scope Preview — **FALSA** (corrección 2026-07-29, diagnóstico cerrado por
+logs): la key está scoped a Production y Preview (verificado por Michael
+con screenshot). **Causa real** (logs del deploy de preview, request IDs
+`ncvkp-1785370096374` / `mmqck-1785370101557`): el AI Gateway rechaza con
+**403 `RestrictedModelsError`** — "Free tier users do not have access to
+this model" — para `anthropic/claude-haiku-4.5`;
+`totalProviderAttemptCount: 0` (el gateway corta antes de intentar
+proveedor). Es BILLING de la cuenta del gateway, no config de la app: los
+smokes del 15-16 jul funcionaron ($0.22 reales); entre esa fecha y hoy
+Vercel restringió el free tier del gateway (o expiraron créditos
+promocionales). **Consecuencia:** el chatbot de PRODUCCIÓN está
+igualmente roto desde ese cambio (mismo gateway) — el claim del ledger
+"`AI_GATEWAY_API_KEY` verificada funcionando en prod" quedó stale
+(anotado allá sin borrar el original). Cero usuarios afectados (VIKS
+post-F3). **Resolución:** top-up de créditos del AI Gateway (acción de
+billing de Michael; NO requiere redeploy — los créditos son del lado del
+gateway). Cierre de H3 = re-test del chat post-top-up. No bloquea el
+merge de T1 (decisión de Michael). T3 del bloque queda con DEPENDENCIA de
+créditos activos del gateway (registrado en el CORTE).
 
 **Regla nueva del gate de preview (decisión de Michael, 2026-07-29,
 registrada en CLAUDE.md):** los commits docs-only posteriores al smoke NO
