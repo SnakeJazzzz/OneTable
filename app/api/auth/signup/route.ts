@@ -19,7 +19,12 @@ import { db } from '@/lib/db';
 import { errorResponse } from '@/lib/auth-helpers';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD = 6;
+const MIN_PASSWORD = 10;
+// bcrypt silently truncates input beyond 72 BYTES (not chars — multibyte
+// passwords hit it earlier). Truncation would mean two different passwords
+// verify as equal, so we REJECT over-long passwords instead (T2 §2.8).
+// Existing users are untouched — this only gates new signups.
+const MAX_PASSWORD_BYTES = 72;
 const MIN_CLIENT_NAME = 2;
 const MAX_CLIENT_NAME = 100;
 const BCRYPT_ROUNDS = 10;
@@ -48,7 +53,14 @@ export async function POST(req: Request): Promise<Response> {
   if (!password || password.length < MIN_PASSWORD) {
     return errorResponse(
       'INVALID_PASSWORD',
-      `Password debe tener al menos ${MIN_PASSWORD} caracteres`,
+      `Tu contraseña debe tener al menos ${MIN_PASSWORD} caracteres`,
+      400,
+    );
+  }
+  if (Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES) {
+    return errorResponse(
+      'PASSWORD_TOO_LONG',
+      `Tu contraseña es demasiado larga (máximo ${MAX_PASSWORD_BYTES} bytes)`,
       400,
     );
   }

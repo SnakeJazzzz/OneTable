@@ -18,10 +18,10 @@
 
 ## Stack inmutable
 
-- Next.js 14 App Router + TypeScript
+- Next.js 14 App Router + TypeScript (14.2.35 desde hardening T2; `eslint-config-next` en lockstep 14.2.35)
 - Tailwind CSS + shadcn/ui
 - Prisma 6.19.3 + Neon Postgres
-- NextAuth v5 (5.0.0-beta.25, JWT, no DB sessions)
+- NextAuth v5 (5.0.0-beta.32 desde hardening T2, JWT, no DB sessions)
 - Recharts, SheetJS (xlsx), Papaparse
 - bcryptjs (no bcrypt — pure JS para Vercel)
 - Vitest (tests integration y unit)

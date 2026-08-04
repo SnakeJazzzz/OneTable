@@ -31,8 +31,25 @@ import Credentials from 'next-auth/providers/credentials';
 import { compare } from 'bcryptjs';
 import { db } from './lib/db';
 
+// Precomputed bcrypt hash (rounds 10 — same cost as real user hashes) of a
+// throwaway string. When the email does not exist, or the user has no
+// clients, authorize() still runs ONE bcrypt compare against this constant
+// before returning null. Without it, "email not registered" returns ~100x
+// faster than "wrong password", letting an attacker enumerate registered
+// emails by timing (hardening T2, §2.6). The compare result is discarded
+// on purpose — it can never be true for a real password.
+const DUMMY_BCRYPT_HASH =
+  '$2a$10$3SCDERLz3k3giI9UDMWCFO.koM.oPC3OtUtJ21NeK7TIdUuROLk3C';
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  session: { strategy: 'jwt' },
+  // maxAge: 24h ROLLING idle window, not an absolute lifetime. Under
+  // strategy 'jwt' the JWT is re-signed with exp = now + maxAge on every
+  // session read, so a cookie used at least once a day never expires; only
+  // 24h of full inactivity ends the session. updateAge is a NO-OP under the
+  // JWT strategy (it is only read on the database-sessions branch); it stays
+  // because the brief (T2 §2.5) pins this exact config. Semantics verified
+  // against the installed source of @auth/core@0.41.3.
+  session: { strategy: 'jwt', maxAge: 86400, updateAge: 3600 },
   secret: process.env.AUTH_SECRET,
   trustHost: true, // required for AUTH_URL inference in Vercel previews / dev
   pages: { signIn: '/login' }, // G1 owns the /login page
@@ -53,7 +70,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           where: { email },
           include: { clients: { take: 1, orderBy: { createdAt: 'asc' } } },
         });
-        if (!user || user.clients.length === 0) return null;
+        if (!user || user.clients.length === 0) {
+          // Timing equalizer — see DUMMY_BCRYPT_HASH above.
+          await compare(password, DUMMY_BCRYPT_HASH);
+          return null;
+        }
 
         const ok = await compare(password, user.passwordHash);
         if (!ok) return null;

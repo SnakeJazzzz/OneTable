@@ -50,7 +50,7 @@ describe('POST /api/auth/signup', () => {
     createdEmails.push(email);
 
     const res = await POST(
-      jsonRequest({ email, password: 'secret123', clientName: 'Acme Corp' }),
+      jsonRequest({ email, password: 'secret1234', clientName: 'Acme Corp' }),
     );
 
     expect(res.status).toBe(200);
@@ -65,7 +65,7 @@ describe('POST /api/auth/signup', () => {
       include: { clients: true },
     });
     expect(user).not.toBeNull();
-    expect(user!.passwordHash).not.toBe('secret123');
+    expect(user!.passwordHash).not.toBe('secret1234');
     expect(user!.passwordHash.length).toBeGreaterThan(20);
     expect(user!.clients).toHaveLength(1);
     expect(user!.clients[0].name).toBe('Acme Corp');
@@ -87,12 +87,12 @@ describe('POST /api/auth/signup', () => {
     createdEmails.push(email);
 
     const first = await POST(
-      jsonRequest({ email, password: 'secret123', clientName: 'First Co' }),
+      jsonRequest({ email, password: 'secret1234', clientName: 'First Co' }),
     );
     expect(first.status).toBe(200);
 
     const second = await POST(
-      jsonRequest({ email, password: 'other456', clientName: 'Second Co' }),
+      jsonRequest({ email, password: 'other45678', clientName: 'Second Co' }),
     );
     expect(second.status).toBe(409);
     const body = (await second.json()) as { error: { code: string } };
@@ -105,7 +105,7 @@ describe('POST /api/auth/signup', () => {
 
   it('returns 400 for invalid email', async () => {
     const res = await POST(
-      jsonRequest({ email: 'not-an-email', password: 'secret123', clientName: 'X Co' }),
+      jsonRequest({ email: 'not-an-email', password: 'secret1234', clientName: 'X Co' }),
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
@@ -122,9 +122,51 @@ describe('POST /api/auth/signup', () => {
     expect(body.error.code).toBe('INVALID_PASSWORD');
   });
 
+  // T2 §2.8 password policy boundaries: min 10 chars, cap 72 BYTES.
+  it('returns 400 for a 9-char password (below the 10-char minimum)', async () => {
+    const email = newEmail('pw9');
+    const res = await POST(
+      jsonRequest({ email, password: '123456789', clientName: 'X Co' }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('INVALID_PASSWORD');
+  });
+
+  it('accepts a password of exactly 10 chars', async () => {
+    const email = newEmail('pw10');
+    createdEmails.push(email);
+    const res = await POST(
+      jsonRequest({ email, password: '1234567890', clientName: 'X Co' }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 400 for a password over 72 bytes (multibyte counts bytes, not chars)', async () => {
+    const email = newEmail('pwbytes');
+    // 25 emojis = 25 chars but 100 UTF-8 bytes — over the 72-byte bcrypt cap.
+    const password = '\u{1F512}'.repeat(25);
+    expect(Buffer.byteLength(password, 'utf8')).toBe(100);
+    const res = await POST(
+      jsonRequest({ email, password, clientName: 'X Co' }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('PASSWORD_TOO_LONG');
+  });
+
+  it('accepts a password of exactly 72 bytes', async () => {
+    const email = newEmail('pw72');
+    createdEmails.push(email);
+    const res = await POST(
+      jsonRequest({ email, password: 'a'.repeat(72), clientName: 'X Co' }),
+    );
+    expect(res.status).toBe(200);
+  });
+
   it('returns 400 for missing clientName', async () => {
     const email = newEmail('noname');
-    const res = await POST(jsonRequest({ email, password: 'secret123' }));
+    const res = await POST(jsonRequest({ email, password: 'secret1234' }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('INVALID_CLIENT_NAME');

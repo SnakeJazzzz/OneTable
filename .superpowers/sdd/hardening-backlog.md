@@ -593,6 +593,141 @@
       como segundo file del artifact y/o anotar el riesgo en el runbook
       paso 5.
 
+## T2 Tanda A — audit post-bump y erratum del brief (2026-08-03)
+
+### Erratum del brief T2 §1.9 (pedido por Michael)
+
+El brief dice "9 modelos" en el schema Prisma; son **10** (verificado:
+`grep -c "^model" prisma/schema.prisma` → 10). Conteo errado al escribir
+el brief; el schema no cambió desde B1. La afirmación operativa del §1.9
+es correcta: NO existe modelo `RateLimit` (grep vacío) y hay 3 migraciones
+en `prisma/migrations/`.
+
+### Advisories CERRADOS por el bump (next 14.2.18→14.2.35, next-auth beta.25→beta.32)
+
+Fuente: endpoint bulk de advisories de npm consultado con versión vieja
+vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
+53 (3c/27h/21m/2l).
+
+`next` (9 cerrados):
+- GHSA-f82v-jwr5-mffw **critical** — Authorization Bypass in Middleware
+  (el CVE que motivó el bump; patched ≥14.2.25).
+- GHSA-mwv6-3258-q52c high — DoS Server Components (≥14.2.34).
+- GHSA-5j59-xgg2-r9c4 high — DoS Server Components, incomplete fix
+  (≥14.2.35).
+- GHSA-7m27-7ghc-44w9 moderate — DoS Server Actions (≥14.2.21).
+- GHSA-g5qg-72qw-gw5v moderate — cache key confusion Image Optimization
+  (≥14.2.31).
+- GHSA-4342-x723-ch2f moderate — middleware redirect SSRF (≥14.2.32).
+- GHSA-xv57-4mr9-wg8v moderate — content injection Image Optimization
+  (≥14.2.31).
+- GHSA-3h52-269p-cp9r low — dev server origin verification (≥14.2.30).
+- GHSA-qpjv-v59x-3qc4 low — race condition cache poisoning (≥14.2.24).
+
+`next-auth` (5 cerrados — TODOS los advisories de beta.25):
+- GHSA-8fpg-xm3f-6cx3 **critical** — existence-based auth checks fail
+  open (exactamente nuestro patrón middleware/requireAuth).
+- GHSA-7rqj-j65f-68wh **critical** — email normalizer Unicode/homoglyph
+  bypass.
+- GHSA-xmf8-cvqr-rfgj high — getToken() uncaught exception en Bearer
+  malformado.
+- GHSA-5jpx-9hw9-2fx4 moderate — email misdelivery.
+- GHSA-x445-f3h2-j279 moderate — OAuth state/nonce/PKCE cookies no
+  atadas.
+
+### Advisories RESTANTES post-bump — triage en dos grupos (instrucción de Michael)
+
+**(a) Cadenas dev-only / build-time — registrar, NO accionar:**
+- `vitest` 2 critical (GHSA-9crc-q9x8-hgqq, GHSA-5xrq-8626-4rwp): son del
+  Vitest UI/browser server, que no corre en CI ni en prod — superficie
+  solo en la máquina de dev con `--ui`.
+- `brace-expansion` 3 GHSAs high (GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg,
+  GHSA-rgw5-rvv9-x895, multipaths): ReDoS en tooling de lint/coverage
+  (eslint, @vitest/coverage-v8) — nunca procesa input de usuarios.
+- `glob` high (GHSA-5j98-mcp5-4vw2, vía eslint-config-next) y `js-yaml`
+  high+moderate (GHSA-52cp-r559-cp3m, GHSA-h67p-54hq-rp68, vía eslint):
+  solo corren en lint local/CI sobre archivos del repo.
+- `vite` high+2 moderate (GHSA-fx2h-pf6j-xcff, GHSA-4w7w-66w2-5vf9,
+  GHSA-v6wh-96g9-6wx3) y `esbuild` moderate (GHSA-67mh-4wv8-2f99, vía
+  vitest/tsx): dev servers de test tooling, no expuestos ni deployados.
+- `postcss` 2 high + 2 moderate (GHSA-6g55-p6wh-862q, GHSA-r28c-9q8g-f849,
+  GHSA-qx2v-qp2m-jg93, GHSA-fxqj-rqcc-2cmp): parser de CSS en BUILD time
+  sobre CSS propio del repo — no procesa input externo en runtime.
+
+**(b) Dependencias con path a producción — registradas, decisión tomada:**
+- `next` 8 high + 8 moderate + 2 low restantes (GHSA-h25m-26qc-wcjf,
+  GHSA-q4gf-8mx6-v5v3, GHSA-8h8q-6873-q5fj, GHSA-c4j6-fc7j-m34r,
+  GHSA-36qx-fr4f-26g5, GHSA-m99w-x7hq-7vfj, GHSA-89xv-2m56-2m9x,
+  GHSA-p9j2-gv94-2wf4 los high): TODOS piden ≥15.0.8..≥15.5.21 — cruzan
+  major (14→15), fuera del scope del hardening; se registran para el
+  upgrade de major.
+- `xlsx` 2 high (GHSA-4r6h-8v6p-xvw6 prototype pollution,
+  GHSA-5pgg-2g8v-p4x9 ReDoS): SIN patch en npm — riesgo aceptado interim;
+  la mitigación es el cap de 10MB por archivo (Tanda B de T2).
+- `@auth/core@0.37.4` 1 critical + 1 high + 1 moderate
+  (GHSA-7rqj-j65f-68wh, GHSA-xmf8-cvqr-rfgj, GHSA-x445-f3h2-j279): entran
+  SOLO vía `@auth/prisma-adapter@2.7.4`, que está en package.json pero NO
+  se importa en ningún lado (JWT strategy sin adapter; único match es un
+  comentario en auth.ts) — código muerto sin path de ejecución. El
+  next-auth bumpeado resuelve `@auth/core@0.41.3` (patched). Cierre
+  definitivo = remover `@auth/prisma-adapter` (cleanup ya registrado de
+  Fase 2); mientras tanto, cero superficie runtime.
+  **RESOLUCIÓN (Michael, 2026-08-03): remover `@auth/prisma-adapter` como
+  rider INICIAL de Tanda B** — un renglón en package.json + lockfile con
+  `--ignore-scripts` + supply-chain antes/después + suite — para que el
+  audit baseline quede limpio de ese critical antes de T6.
+
+## T2 Tanda A — minors de la doble review (no bloquean; registrados 2026-08-03)
+
+- [ ] **[RESUELTO por Michael 2026-08-03] Session rolling + `updateAge`
+      inerte bajo JWT** (`auth.ts:52`) — bajo `strategy: 'jwt'` la sesión es
+      rolling (idle window 24h, re-firma en cada lectura) y `updateAge` es
+      NO-OP; comment corregido en el diff de Tanda A. RESOLUCIÓN: rolling
+      ACEPTADO (coincide con la intención escrita del corte: "logout por ~1
+      día de inactividad" = idle window). ACCIÓN PENDIENTE (rider de Tanda
+      B, auth.ts ya se toca ahí): dropear `updateAge` de la config + ajustar
+      el assert de config en `tests/api/auth-authorize.test.ts`. Expiry
+      absoluto vía claim custom en el callback `jwt`: registrado como opción
+      futura post-usuarios-reales, no ahora.
+- [ ] **csp-report: cap no pre-materialización**
+      (`app/api/csp-report/route.ts:30,34`) — `req.text()` bufferea el body
+      completo antes del chequeo de 32KB; un POST chunked sin Content-Length
+      materializa todo (acotado ~4.5MB por Vercel; sin cota dura en
+      dev/self-host). Además `raw.length` cuenta UTF-16 code units, no bytes.
+      Riesgo bajo; endurecer si duele.
+- [ ] **csp-report: sin rate limit ni autenticidad**
+      (`app/api/csp-report/route.ts`) — reportes forjables/floodeables con
+      curl; la señal "cero violations" que alimenta la evidencia del flip de
+      T6 es envenenable. Mitigación candidata: rate limit por IP con el
+      limiter reusable (T3) + leer la evidencia de T6 con este caveat.
+- [ ] **Copy signup "máximo 72 caracteres" vs server 72 BYTES**
+      (`app/(auth)/signup/page.tsx:25`, ERROR_COPY) — el mensaje es impreciso
+      justo en los casos multibyte que lo disparan. Ajustar en la pasada de
+      copy (T5) o próximo touch de la página. (Levantado por AMBOS carriles.)
+- [ ] **Import `.ts` en `next.config.mjs` depende de Node ≥22.18 en el
+      builder de Vercel** (`next.config.mjs:9`) — sin `engines` pin en
+      `package.json` (candidato de remedio; fuera del scope del fix pass de
+      Tanda A); si el project setting fuera menor,
+      el build muere RUIDOSO con `ERR_UNKNOWN_FILE_EXTENSION` (se ve en el
+      primer deploy del PR). Side-effect: 2 warnings de type stripping por
+      comando `next`.
+- [ ] **[RESUELTO por Michael 2026-08-03, PRE-SMOKE] CSP enforced en preview
+      vs Vercel Toolbar** (`vercel.live`; `lib/security-headers.ts`) — la CSP
+      de preview bloquearía el toolbar (violations en console + toolbar
+      roto). RESOLUCIÓN: Michael APAGA el toolbar del proyecto en el
+      dashboard de Vercel (config humana, ANTES del smoke de preview).
+      Fallback si el toggle no existe: allowlist de `vercel.live`
+      solo-preview como line item de Tanda B.
+- [ ] **Endurecer `tests/api/auth-authorize.test.ts`**
+      (`tests/api/auth-authorize.test.ts:94,104`) — assertar que `compare`
+      fue llamado CON `DUMMY_BCRYPT_HASH` (hoy solo cuenta llamadas; un
+      regreso a comparar contra `''` pasaría verde) + agregar el path "user
+      existente + password incorrecta".
+- [ ] **HMR bajo CSP dev: cierre pendiente** — verificación in-browser no
+      realizada (extensión de Chrome desconectada; regla post-incidente);
+      cierre = primer `pnpm dev` de Michael con browser abierto: HMR
+      funcionando + cero violations CSP en console (falla ruidosa si no).
+
 ## Pendiente-por-archivo
 
 - [ ] **Code-skip §5.4 con archivo Amazon real** — ítem 5 del smoke de B4,
