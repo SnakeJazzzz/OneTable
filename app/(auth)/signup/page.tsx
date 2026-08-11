@@ -21,7 +21,8 @@ type ApiError = { error?: { code?: string; message?: string } };
 const ERROR_COPY: Record<string, string> = {
   EMAIL_TAKEN: 'Ese email ya está registrado',
   INVALID_EMAIL: 'Email inválido',
-  INVALID_PASSWORD: 'La contraseña debe tener al menos 6 caracteres',
+  INVALID_PASSWORD: 'Tu contraseña debe tener al menos 10 caracteres',
+  PASSWORD_TOO_LONG: 'Tu contraseña es demasiado larga (máximo 72 caracteres)',
   INVALID_CLIENT_NAME: 'El nombre de la empresa es requerido',
   INVALID_BODY: 'Datos inválidos',
 };
@@ -129,12 +130,12 @@ export default function SignupPage() {
                 type="password"
                 autoComplete="new-password"
                 required
-                minLength={6}
+                minLength={10}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={submitting}
               />
-              <p className="text-xs text-muted-foreground">Mínimo 6 caracteres.</p>
+              <p className="text-xs text-muted-foreground">Mínimo 10 caracteres.</p>
             </div>
             {error && (
               <p

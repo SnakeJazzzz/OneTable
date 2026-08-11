@@ -9,19 +9,24 @@ vi.mock('@/auth', () => ({
 }));
 
 import { POST } from '@/app/api/auth/signup/route';
+import { windowStartFor, AUTH_WINDOW_MS, AUTH_IP_LIMIT } from '@/lib/rate-limit';
 
 const db = new PrismaClient();
 
 // Use timestamped emails so reruns don't collide if cleanup fails.
 const RUN_TAG = `g1-signup-${Date.now()}`;
 const newEmail = (suffix: string) => `${RUN_TAG}-${suffix}@example.test`;
+// Per-run unique IP: every POST consumes one unit of the signup:ip budget
+// (T2 §5.4), so a shared 'unknown' bucket would accumulate across suite
+// reruns inside one 15-min fixed window and eventually 429 unrelated tests.
+const RUN_IP = `${RUN_TAG}-ip`;
 
 const createdEmails: string[] = [];
 
-function jsonRequest(body: unknown): Request {
+function jsonRequest(body: unknown, ip: string = RUN_IP): Request {
   return new Request('http://localhost/api/auth/signup', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
     body: JSON.stringify(body),
   });
 }
@@ -42,6 +47,7 @@ describe('POST /api/auth/signup', () => {
   });
 
   afterAll(async () => {
+    await db.rateLimit.deleteMany({ where: { key: { startsWith: 'g1-signup-' } } });
     await db.$disconnect();
   });
 
@@ -50,7 +56,7 @@ describe('POST /api/auth/signup', () => {
     createdEmails.push(email);
 
     const res = await POST(
-      jsonRequest({ email, password: 'secret123', clientName: 'Acme Corp' }),
+      jsonRequest({ email, password: 'secret1234', clientName: 'Acme Corp' }),
     );
 
     expect(res.status).toBe(200);
@@ -65,7 +71,7 @@ describe('POST /api/auth/signup', () => {
       include: { clients: true },
     });
     expect(user).not.toBeNull();
-    expect(user!.passwordHash).not.toBe('secret123');
+    expect(user!.passwordHash).not.toBe('secret1234');
     expect(user!.passwordHash.length).toBeGreaterThan(20);
     expect(user!.clients).toHaveLength(1);
     expect(user!.clients[0].name).toBe('Acme Corp');
@@ -87,12 +93,12 @@ describe('POST /api/auth/signup', () => {
     createdEmails.push(email);
 
     const first = await POST(
-      jsonRequest({ email, password: 'secret123', clientName: 'First Co' }),
+      jsonRequest({ email, password: 'secret1234', clientName: 'First Co' }),
     );
     expect(first.status).toBe(200);
 
     const second = await POST(
-      jsonRequest({ email, password: 'other456', clientName: 'Second Co' }),
+      jsonRequest({ email, password: 'other45678', clientName: 'Second Co' }),
     );
     expect(second.status).toBe(409);
     const body = (await second.json()) as { error: { code: string } };
@@ -105,7 +111,7 @@ describe('POST /api/auth/signup', () => {
 
   it('returns 400 for invalid email', async () => {
     const res = await POST(
-      jsonRequest({ email: 'not-an-email', password: 'secret123', clientName: 'X Co' }),
+      jsonRequest({ email: 'not-an-email', password: 'secret1234', clientName: 'X Co' }),
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
@@ -122,11 +128,82 @@ describe('POST /api/auth/signup', () => {
     expect(body.error.code).toBe('INVALID_PASSWORD');
   });
 
+  // T2 §2.8 password policy boundaries: min 10 chars, cap 72 BYTES.
+  it('returns 400 for a 9-char password (below the 10-char minimum)', async () => {
+    const email = newEmail('pw9');
+    const res = await POST(
+      jsonRequest({ email, password: '123456789', clientName: 'X Co' }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('INVALID_PASSWORD');
+  });
+
+  it('accepts a password of exactly 10 chars', async () => {
+    const email = newEmail('pw10');
+    createdEmails.push(email);
+    const res = await POST(
+      jsonRequest({ email, password: '1234567890', clientName: 'X Co' }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 400 for a password over 72 bytes (multibyte counts bytes, not chars)', async () => {
+    const email = newEmail('pwbytes');
+    // 25 emojis = 25 chars but 100 UTF-8 bytes — over the 72-byte bcrypt cap.
+    const password = '\u{1F512}'.repeat(25);
+    expect(Buffer.byteLength(password, 'utf8')).toBe(100);
+    const res = await POST(
+      jsonRequest({ email, password, clientName: 'X Co' }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('PASSWORD_TOO_LONG');
+  });
+
+  it('accepts a password of exactly 72 bytes', async () => {
+    const email = newEmail('pw72');
+    createdEmails.push(email);
+    const res = await POST(
+      jsonRequest({ email, password: 'a'.repeat(72), clientName: 'X Co' }),
+    );
+    expect(res.status).toBe(200);
+  });
+
   it('returns 400 for missing clientName', async () => {
     const email = newEmail('noname');
-    const res = await POST(jsonRequest({ email, password: 'secret123' }));
+    const res = await POST(jsonRequest({ email, password: 'secret1234' }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('INVALID_CLIENT_NAME');
+  });
+
+  // T2 §5.4: per-IP rate limit, same policy as login IP (20/15min), honest
+  // 429 (unlike login's generic null — deliberate asymmetry, no account
+  // oracle to protect on signup).
+  it('returns 429 RATE_LIMITED when the IP is over the limit', async () => {
+    const ip = `${RUN_TAG}-ip-limited`;
+    // Exhaust the current fixed window for this IP; the next POST's consume
+    // increments past the limit and must be rejected before any work.
+    await db.rateLimit.create({
+      data: {
+        scope: 'signup:ip',
+        key: ip,
+        windowStart: windowStartFor(AUTH_WINDOW_MS),
+        count: AUTH_IP_LIMIT,
+      },
+    });
+
+    const email = newEmail('ratelimited');
+    const res = await POST(
+      jsonRequest({ email, password: 'secret1234', clientName: 'Limited Co' }, ip),
+    );
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('RATE_LIMITED');
+
+    // The rejected attempt never reached the DB write path.
+    const user = await db.user.findUnique({ where: { email } });
+    expect(user).toBeNull();
   });
 });

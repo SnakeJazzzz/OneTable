@@ -35,7 +35,14 @@
 > valor; cortable desde abajo. Los ítems del backlog NO incluidos en este
 > corte conservan su gate/disparador original en las secciones de abajo.
 
-1. **ENTORNOS + DEVOPS.** Branches de Neon production/staging/dev con
+1. **ENTORNOS + DEVOPS.** **[COMPLETADO 2026-07-29 — PR #15 mergeado a
+   main (`936b8d1`). Gate cerrado con evidencia: (a) guard bloqueando
+   production/staging + suite verde contra development (44 archivos, 424
+   tests); (b) health 200 `{"status":"ok","db":"up"}` en preview y prod;
+   (c) backup dry-run manual post-merge con artifact descifrado y
+   `pg_restore --list` OK. UptimeRobot activo sobre `/api/health` de prod.
+   Detalle: handoff `session-t1-close.md`.]** Branches de Neon
+   production/staging/dev con
    `DATABASE_URL` por entorno en Vercel (production/preview/development).
    Backups: verificar retención PITR del plan de Neon + GitHub Action cron
    semanal de pg_dump cifrado. El smoke de Michael sobre la URL de preview
@@ -77,7 +84,10 @@
    Gateway** — la verificación de cache hits y el smoke del chat los
    requieren (hoy el gateway rechaza el modelo por billing, 403
    RestrictedModelsError; top-up pendiente de Michael). El rate limit de
-   este task es además la protección de ese saldo.
+   este task es además la protección de ese saldo. **DEPENDENCIA
+   SATISFECHA 2026-07-29 (cierre de H3): top-up de $20 USD hecho, chat
+   verificado funcionando en preview y prod. El rate limit sigue siendo
+   la protección del saldo.**
 
 4. **ROBUSTEZ / OBSERVABILIDAD.** Error boundaries (`error.tsx`,
    `global-error.tsx`, `not-found.tsx` con estilo de la app). Sweep
@@ -193,15 +203,20 @@
       Barrido: error boundaries + mensajes de usuario en rutas y páginas;
       los 500 con shape `{error}` uniforme ya existen en las rutas de
       Portales/Parámetros — el gap es auth y páginas server-side.
-- [ ] **DB de prod separada + backups.** Hoy dev y beta comparten la Neon
+- [x] **DB de prod separada + backups.** Hoy dev y beta comparten la Neon
       dev DB. Database/branch de prod separada, backups automáticos.
       Fundamento actualizado 2026-07-20: por DISEÑO (dev/tests no deben
       poder truncar la DB que servirá prod), no por urgencia de VIKS
       (arranca uso real post-Fase 3); el trigger de "operaciones
       destructivas requieren OK explícito" (ya en CLAUDE.md) sigue siendo
-      el EVENTO de data real cargada.
-- [ ] **Ambiente de pre-producción** para smoke de deploys antes de
-      promover a prod.
+      el EVENTO de data real cargada. **RESUELTO por T1 (2026-07-29):
+      entornos Neon por scope + backup diario cifrado verificado
+      restaurable — ver CORTE punto 1 y session-t1-close.md.**
+- [x] **Ambiente de pre-producción** para smoke de deploys antes de
+      promover a prod. **RESUELTO POR DISEÑO en T1: preview de Vercel
+      contra staging fija + smoke obligatorio pre-merge cumple la función
+      de pre-prod (decisión del corte: trunk-based, sin ambiente
+      adicional).**
 - [x] **OBSOLETO 2026-07-20 (decisión de Michael, T1):** (origen: pendiente
       #2 de CLAUDE.md, confirmado inexistente 2026-07-15) ~~Segunda Neon
       branch para preflight DB — junto con la DB de prod separada; necesaria
@@ -293,6 +308,12 @@
       `components/parametros/sku-table.tsx:347` ("Agregá", "importá").
       Grep de re-verificación al ejecutar el barrido (la lista puede crecer
       con bloques posteriores). Junto con la pasada de identidad visual.
+      Además del voseo: decidir el IDIOMA de los errores per-file de
+      `data/upload` (hoy en INGLÉS, pre-existente y user-visible en la UI
+      de Portales; el cap nuevo de T2 "file too large..." siguió esa
+      convención local — la pasada de T5 decide idioma de TODA esa
+      familia, no solo tuteo). (Observación del filtro externo,
+      2026-08-10.)
 
 - [ ] (origen: smoke T3 B5, hallazgo de producto, 2026-07-16) **El chatbot
       INVENTA cantidades cuando se le piden recomendaciones.** Observado en
@@ -320,7 +341,7 @@
 
 ### CRÍTICO / ALTO — infra y datos
 
-- [ ] **[YA DECIDIDO — primer ítem de implementación] DB de prod separada +
+- [x] **[YA DECIDIDO — primer ítem de implementación] DB de prod separada +
       backups.** Ya estaba en "Observabilidad / prod" abajo; se eleva acá por
       severidad. Neon dev/prod COMPARTIDA: `app/api/data/reset/route.ts` hace
       `$transaction` de `deleteMany` de SelloutData+UnmappedProduct+Upload
@@ -334,6 +355,9 @@
       siendo el EVENTO de data real cargada. **Sev: CRÍTICA. Esfuerzo: M** (crear branch/
       DB Neon de prod, separar `DATABASE_URL` por entorno en Vercel, activar
       backups automáticos, verificar que `pnpm test` local no toque prod).
+      **RESUELTO por T1 (2026-07-29): entornos Neon por scope + backup
+      diario cifrado verificado restaurable — ver CORTE punto 1 y
+      session-t1-close.md.**
 
 - [ ] **`next@14.2.18` con 1 CVE crítico + 8 high (`pnpm audit`).** El crítico
       es **Authorization Bypass in Next.js Middleware** (patched ≥14.2.25) —
@@ -471,6 +495,10 @@
       gateway rechaza el modelo por billing (403 RestrictedModelsError,
       free tier restringido post-16-jul); el chatbot de prod está roto
       hasta el top-up de créditos (ver ítem H3 en T1 follow-ups).
+      **Anotación 2026-07-29 (cierre de H3): top-up hecho, chat
+      verificado funcionando en preview y prod — el claim vuelve a ser
+      cierto. El pre-check al boot sigue pendiente; el ítem permanece
+      abierto solo por eso.**
 
 ## T1 follow-ups (minors de review quality, 2026-07-20)
 
@@ -511,7 +539,7 @@
       `https://onetable-gold.vercel.app`; Preview → entrada ELIMINADA
       (`trustHost: true` deriva el host del request); `.env.example`
       corregido a mano. Detalle en handoff `session-t1-pasos-1-2.md` §7.
-- [ ] (smoke preview T1, H3, 2026-07-29; root cause CERRADO por logs el
+- [x] (smoke preview T1, H3, 2026-07-29; root cause CERRADO por logs el
       mismo día) **Chatbot roto en preview Y producción: AI Gateway
       rechaza con 403 `RestrictedModelsError`** ("Free tier users do not
       have access to this model") para `anthropic/claude-haiku-4.5`,
@@ -524,7 +552,10 @@
       usuarios afectados (VIKS post-F3). RESOLUCIÓN: top-up de créditos
       del gateway (billing de Michael; sin redeploy). CIERRE = re-test
       del chat post-top-up. NO bloquea el merge de T1 (decisión de
-      Michael).
+      Michael). **RESUELTO 2026-07-29: top-up de $20 USD al AI Gateway;
+      re-test de Michael con el chat FUNCIONANDO en preview y en
+      producción. La dependencia de T3 (créditos activos) queda
+      satisfecha.**
 - [ ] (smoke preview T1, menor, 2026-07-29) **`favicon.png` 404 en todos
       los deployments** (asset ausente). Cosmético — va con la pasada de
       identidad visual (Fase 2.5/pre-Fundadores).
@@ -546,6 +577,14 @@
       `DATABASE_URL`); footgun si un futuro `directUrl` de Prisma o script
       lee una legacy → volvería a prod en silencio. Opciones al tocarlo:
       re-scopearlas a Production-only o eliminarlas del sync.
+- [ ] (origen: T2 Tanda B §4, 2026-08-04) **Automatizar `prisma migrate
+      deploy` (buildCommand de Vercel o GitHub Action)** para staging y
+      production, hoy pasos manuales de Michael
+      (`docs/runbooks/t2-migraciones-runbook.md`). **BLOQUEADO por el ítem
+      anterior de vars legacy**: automatizar exigiría strings unpooled en
+      vars/secrets mientras `DATABASE_URL_UNPOOLED`/`POSTGRES_*`/`PG*`
+      sigan apuntando a production en los 3 scopes — un pipeline que las
+      lea migraría production en silencio.
 - [ ] (mismo origen) **Confirmar explícitamente el toggle de
       preview-branching OFF** en la config de la integración Neon (la
       evidencia empírica lo sugiere — preview resuelve a la branch staging
@@ -567,6 +606,183 @@
       constraint cero-deps. Mitigación barata: subir `sha256sum` del `.enc`
       como segundo file del artifact y/o anotar el riesgo en el runbook
       paso 5.
+
+## T2 Tanda A — audit post-bump y erratum del brief (2026-08-03)
+
+### Erratum del brief T2 §1.9 (pedido por Michael)
+
+El brief dice "9 modelos" en el schema Prisma; son **10** (verificado:
+`grep -c "^model" prisma/schema.prisma` → 10). Conteo errado al escribir
+el brief; el schema no cambió desde B1. La afirmación operativa del §1.9
+es correcta: NO existe modelo `RateLimit` (grep vacío) y hay 3 migraciones
+en `prisma/migrations/`.
+
+### Advisories CERRADOS por el bump (next 14.2.18→14.2.35, next-auth beta.25→beta.32)
+
+Fuente: endpoint bulk de advisories de npm consultado con versión vieja
+vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
+53 (3c/27h/21m/2l).
+
+`next` (9 cerrados):
+- GHSA-f82v-jwr5-mffw **critical** — Authorization Bypass in Middleware
+  (el CVE que motivó el bump; patched ≥14.2.25).
+- GHSA-mwv6-3258-q52c high — DoS Server Components (≥14.2.34).
+- GHSA-5j59-xgg2-r9c4 high — DoS Server Components, incomplete fix
+  (≥14.2.35).
+- GHSA-7m27-7ghc-44w9 moderate — DoS Server Actions (≥14.2.21).
+- GHSA-g5qg-72qw-gw5v moderate — cache key confusion Image Optimization
+  (≥14.2.31).
+- GHSA-4342-x723-ch2f moderate — middleware redirect SSRF (≥14.2.32).
+- GHSA-xv57-4mr9-wg8v moderate — content injection Image Optimization
+  (≥14.2.31).
+- GHSA-3h52-269p-cp9r low — dev server origin verification (≥14.2.30).
+- GHSA-qpjv-v59x-3qc4 low — race condition cache poisoning (≥14.2.24).
+
+`next-auth` (5 cerrados — TODOS los advisories de beta.25):
+- GHSA-8fpg-xm3f-6cx3 **critical** — existence-based auth checks fail
+  open (exactamente nuestro patrón middleware/requireAuth).
+- GHSA-7rqj-j65f-68wh **critical** — email normalizer Unicode/homoglyph
+  bypass.
+- GHSA-xmf8-cvqr-rfgj high — getToken() uncaught exception en Bearer
+  malformado.
+- GHSA-5jpx-9hw9-2fx4 moderate — email misdelivery.
+- GHSA-x445-f3h2-j279 moderate — OAuth state/nonce/PKCE cookies no
+  atadas.
+
+### Advisories RESTANTES post-bump — triage en dos grupos (instrucción de Michael)
+
+**(a) Cadenas dev-only / build-time — registrar, NO accionar:**
+- `vitest` 2 critical (GHSA-9crc-q9x8-hgqq, GHSA-5xrq-8626-4rwp): son del
+  Vitest UI/browser server, que no corre en CI ni en prod — superficie
+  solo en la máquina de dev con `--ui`.
+- `brace-expansion` 3 GHSAs high (GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg,
+  GHSA-rgw5-rvv9-x895, multipaths): ReDoS en tooling de lint/coverage
+  (eslint, @vitest/coverage-v8) — nunca procesa input de usuarios.
+- `glob` high (GHSA-5j98-mcp5-4vw2, vía eslint-config-next) y `js-yaml`
+  high+moderate (GHSA-52cp-r559-cp3m, GHSA-h67p-54hq-rp68, vía eslint):
+  solo corren en lint local/CI sobre archivos del repo.
+- `vite` high+2 moderate (GHSA-fx2h-pf6j-xcff, GHSA-4w7w-66w2-5vf9,
+  GHSA-v6wh-96g9-6wx3) y `esbuild` moderate (GHSA-67mh-4wv8-2f99, vía
+  vitest/tsx): dev servers de test tooling, no expuestos ni deployados.
+- `postcss` 2 high + 2 moderate (GHSA-6g55-p6wh-862q, GHSA-r28c-9q8g-f849,
+  GHSA-qx2v-qp2m-jg93, GHSA-fxqj-rqcc-2cmp): parser de CSS en BUILD time
+  sobre CSS propio del repo — no procesa input externo en runtime.
+
+**(b) Dependencias con path a producción — registradas, decisión tomada:**
+- `next` 8 high + 8 moderate + 2 low restantes (GHSA-h25m-26qc-wcjf,
+  GHSA-q4gf-8mx6-v5v3, GHSA-8h8q-6873-q5fj, GHSA-c4j6-fc7j-m34r,
+  GHSA-36qx-fr4f-26g5, GHSA-m99w-x7hq-7vfj, GHSA-89xv-2m56-2m9x,
+  GHSA-p9j2-gv94-2wf4 los high): TODOS piden ≥15.0.8..≥15.5.21 — cruzan
+  major (14→15), fuera del scope del hardening; se registran para el
+  upgrade de major.
+- `xlsx` 2 high (GHSA-4r6h-8v6p-xvw6 prototype pollution,
+  GHSA-5pgg-2g8v-p4x9 ReDoS): SIN patch en npm — riesgo aceptado interim;
+  la mitigación es el cap de 10MB por archivo (Tanda B de T2).
+- `@auth/core@0.37.4` 1 critical + 1 high + 1 moderate
+  (GHSA-7rqj-j65f-68wh, GHSA-xmf8-cvqr-rfgj, GHSA-x445-f3h2-j279): entran
+  SOLO vía `@auth/prisma-adapter@2.7.4`, que está en package.json pero NO
+  se importa en ningún lado (JWT strategy sin adapter; único match es un
+  comentario en auth.ts) — código muerto sin path de ejecución. El
+  next-auth bumpeado resuelve `@auth/core@0.41.3` (patched). Cierre
+  definitivo = remover `@auth/prisma-adapter` (cleanup ya registrado de
+  Fase 2); mientras tanto, cero superficie runtime.
+  **RESOLUCIÓN (Michael, 2026-08-03): remover `@auth/prisma-adapter` como
+  rider INICIAL de Tanda B** — un renglón en package.json + lockfile con
+  `--ignore-scripts` + supply-chain antes/después + suite — para que el
+  audit baseline quede limpio de ese critical antes de T6.
+  **EJECUTADO (Tanda B, 2026-08-04):** `pnpm --config.ignore-scripts=true
+  remove @auth/prisma-adapter` (el flag `--ignore-scripts` no existe en
+  `pnpm remove`; se forzó vía config) — 3 paquetes fuera del lockfile
+  (`@auth/prisma-adapter@2.7.4`, `@auth/core@0.37.4` y su transitiva);
+  supply-chain limpio antes y después. Audit post-remoción: **50 vulns
+  (2 critical / 26 high / 20 moderate / 2 low)** — desaparecieron
+  exactamente los 3 GHSAs de `@auth/core@0.37.4` (GHSA-7rqj-j65f-68wh
+  critical, GHSA-xmf8-cvqr-rfgj high, GHSA-x445-f3h2-j279 moderate;
+  grep del audit → 0 matches). Los 2 critical restantes son los de
+  vitest (dev-only, grupo (a) de este triage). El único `@auth/core` del
+  lockfile es 0.41.3 (patched, vía next-auth beta.32).
+
+## T2 Tanda A — minors de la doble review (no bloquean; registrados 2026-08-03)
+
+- [x] **[RESUELTO por Michael 2026-08-03] Session rolling + `updateAge`
+      inerte bajo JWT** (`auth.ts:52`) — bajo `strategy: 'jwt'` la sesión es
+      rolling (idle window 24h, re-firma en cada lectura) y `updateAge` es
+      NO-OP; comment corregido en el diff de Tanda A. RESOLUCIÓN: rolling
+      ACEPTADO (coincide con la intención escrita del corte: "logout por ~1
+      día de inactividad" = idle window). ACCIÓN PENDIENTE (rider de Tanda
+      B, auth.ts ya se toca ahí): dropear `updateAge` de la config + ajustar
+      el assert de config en `tests/api/auth-authorize.test.ts`. Expiry
+      absoluto vía claim custom en el callback `jwt`: registrado como opción
+      futura post-usuarios-reales, no ahora.
+      **EJECUTADO (Tanda B, 2026-08-04):** config queda
+      `{ strategy: 'jwt', maxAge: 86400 }`; comentario de la semántica
+      rolling conservado sin la mención a `updateAge`; assert de config
+      ajustado en `tests/api/auth-authorize.test.ts`.
+- [ ] **csp-report: cap no pre-materialización**
+      (`app/api/csp-report/route.ts:30,34`) — `req.text()` bufferea el body
+      completo antes del chequeo de 32KB; un POST chunked sin Content-Length
+      materializa todo (acotado ~4.5MB por Vercel; sin cota dura en
+      dev/self-host). Además `raw.length` cuenta UTF-16 code units, no bytes.
+      Riesgo bajo; endurecer si duele.
+- [ ] **csp-report: sin rate limit ni autenticidad**
+      (`app/api/csp-report/route.ts`) — reportes forjables/floodeables con
+      curl; la señal "cero violations" que alimenta la evidencia del flip de
+      T6 es envenenable. Mitigación candidata: rate limit por IP con el
+      limiter reusable (T3) + leer la evidencia de T6 con este caveat.
+- [ ] **Copy signup "máximo 72 caracteres" vs server 72 BYTES**
+      (`app/(auth)/signup/page.tsx:25`, ERROR_COPY) — el mensaje es impreciso
+      justo en los casos multibyte que lo disparan. Ajustar en la pasada de
+      copy (T5) o próximo touch de la página. (Levantado por AMBOS carriles.)
+- [ ] **Import `.ts` en `next.config.mjs` depende de Node ≥22.18 en el
+      builder de Vercel** (`next.config.mjs:9`) — sin `engines` pin en
+      `package.json` (candidato de remedio; fuera del scope del fix pass de
+      Tanda A); si el project setting fuera menor,
+      el build muere RUIDOSO con `ERR_UNKNOWN_FILE_EXTENSION` (se ve en el
+      primer deploy del PR). Side-effect: 2 warnings de type stripping por
+      comando `next`.
+- [ ] **[RESUELTO por Michael 2026-08-03, PRE-SMOKE] CSP enforced en preview
+      vs Vercel Toolbar** (`vercel.live`; `lib/security-headers.ts`) — la CSP
+      de preview bloquearía el toolbar (violations en console + toolbar
+      roto). RESOLUCIÓN: Michael APAGA el toolbar del proyecto en el
+      dashboard de Vercel (config humana, ANTES del smoke de preview).
+      Fallback si el toggle no existe: allowlist de `vercel.live`
+      solo-preview como line item de Tanda B.
+- [ ] **Endurecer `tests/api/auth-authorize.test.ts`**
+      (`tests/api/auth-authorize.test.ts:94,104`) — assertar que `compare`
+      fue llamado CON `DUMMY_BCRYPT_HASH` (hoy solo cuenta llamadas; un
+      regreso a comparar contra `''` pasaría verde) + agregar el path "user
+      existente + password incorrecta".
+- [ ] **HMR bajo CSP dev: cierre pendiente** — verificación in-browser no
+      realizada (extensión de Chrome desconectada; regla post-incidente);
+      cierre = primer `pnpm dev` de Michael con browser abierto: HMR
+      funcionando + cero violations CSP en console (falla ruidosa si no).
+
+## T2 Tanda B — minors de la doble review (no bloquean; registrados 2026-08-04)
+
+- [ ] **Cap de request-level como hardening opcional**
+      (`app/api/data/upload/route.ts`, `app/api/parametros/import/route.ts`)
+      — `req.formData()` materializa el body ANTES del chequeo de
+      `file.size`; en Vercel el límite de body de la plataforma acota, en
+      dev/self-host no. Comments corregidos en el fix pass de Tanda B;
+      hardening candidato: pre-check de `Content-Length` antes de `formData()`.
+- [ ] **Sin cap de longitud en `key` del rate limiter** (`lib/rate-limit.ts`;
+      `auth.ts` scope `login:email`) — un "email" de ~5KB excede el máximo de
+      btree index row (~2.7KB) → el upsert lanza → fail-open silencioso del
+      scope email para esas keys + ruido de logs (scope IP intacto).
+      Candidato: truncar/hashear keys largas antes del SQL.
+- [ ] **Sin TTL/sweep global de filas stale** (`lib/rate-limit.ts`) — el
+      cleanup lazy solo borra ventanas viejas del MISMO (scope,key); keys
+      one-shot (p.ej. barrido distribuido de muchas IPs) dejan filas
+      permanentes — crecimiento sin cota en Neon Free tier. Candidato:
+      sweep global periódico (cron o piggyback).
+- [ ] **429 de signup sin `Retry-After`** (`app/api/auth/signup/route.ts`)
+      — el fin de ventana es computable; cosmético, mejora UX de clientes
+      legítimos.
+- [ ] **Flake residual de frontera de ventana en tests**
+      (`tests/api/auth-authorize.test.ts` casos limited,
+      `tests/api/signup.test.ts` caso 429) — si la frontera de 15min cae
+      entre seed y llamada, el test falla (~≪0.1%); el assert está blindado
+      window-agnostic, el seed no. Registrar por si aparece en CI.
 
 ## Pendiente-por-archivo
 

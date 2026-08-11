@@ -213,6 +213,45 @@ describe('POST /api/data/upload', () => {
     expect(body.perFile[0].error).toMatch(/chain field must be a plain text value, not a file/);
   });
 
+  // T2 §2.9 per-file 10MB cap. The boundary tests mock `File.size` via
+  // Object.defineProperty on a real (tiny) File — never materializing 10MB of
+  // bytes — and hand the FormData to the route through a stubbed
+  // `req.formData()` (a real multipart Request would re-serialize the File
+  // and recompute size from the actual bytes, losing the override).
+  function makeSizedFileReq(filename: string, size: number): Request {
+    const file = new File([new Uint8Array(16)], filename);
+    Object.defineProperty(file, 'size', { value: size });
+    const form = {
+      getAll: (name: string) => (name === 'files' ? [file] : []),
+      get: () => null,
+    };
+    return { formData: async () => form } as unknown as Request;
+  }
+
+  it('rejects a file over 10MB per-file with the { filename, error } shape (pre-buffer)', async () => {
+    mockSession();
+    const res = await POST(makeSizedFileReq('soriana-big.xlsx', 10 * 1024 * 1024 + 1));
+    // Single file, failed → request-level 400 ALL_FILES_FAILED wrapping the
+    // per-file error (same as any other all-failed request).
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.perFile).toHaveLength(1);
+    expect(body.perFile[0].filename).toBe('soriana-big.xlsx');
+    expect(body.perFile[0].error).toMatch(/file too large/);
+  });
+
+  it('a file of exactly 10MB passes the cap (reaches the pipeline)', async () => {
+    mockSession();
+    const res = await POST(makeSizedFileReq('soriana-boundary.xlsx', 10 * 1024 * 1024));
+    const body = await res.json();
+    expect(body.perFile).toHaveLength(1);
+    // The pinned boundary assertion is that ==10MB is NOT rejected by the
+    // size cap. (xlsx parses 16 zero bytes leniently as an empty workbook,
+    // so the pipeline happens to succeed with 0 rows — either way, no
+    // "file too large" rejection may appear for the boundary file.)
+    expect(JSON.stringify(body.perFile[0])).not.toMatch(/file too large/);
+  });
+
   it('returns 400 when ALL files have unmatched filenames', async () => {
     mockSession();
     const fakeBuffer = Buffer.from('not really xlsx', 'utf-8');

@@ -75,6 +75,11 @@ registrar .mx — A/CNAME manual vs nameservers a Vercel).
 
 ### T1 — ENTORNOS + DEVOPS (CORTE punto 1)
 
+> **Estado: COMPLETADO 2026-07-29** — PR #15 mergeado a main (`936b8d1`);
+> gate cerrado con evidencia (guard + 424 tests, health preview y prod,
+> backup dry-run con `pg_restore --list` OK); UptimeRobot activo. Detalle:
+> `docs/handoff/session-t1-close.md`.
+
 **[MICHAEL — configuración humana]**
 - Crear branches `production` y `staging` en la consola de Neon; capturar los
   connection strings.

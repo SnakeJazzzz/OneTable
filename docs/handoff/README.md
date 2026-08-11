@@ -69,3 +69,9 @@ Formato: archivo — qué cierra — commit/PR asociado.
   handoff externo + trade-off de rotación manual aceptado + dominio
   onetable.mx comprado (integración → Fase 2.5) — docs-only al branch del
   PR #15.
+- `session-t1-close.md` — CIERRE DE T1 (PR #15 mergeado, main @ 936b8d1):
+  gate completo con evidencia (guard 424 tests, health preview+prod, backup
+  dry-run con pg_restore OK), UptimeRobot activo, H1 cerrado también en
+  prod, H3 cerrado (top-up $20 al AI Gateway, chat verificado en ambos
+  entornos). Próximo task: T2 SEGURIDAD — primer commit de
+  `feat/hardening-t2`.
