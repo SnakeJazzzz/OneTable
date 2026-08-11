@@ -52,7 +52,18 @@
    preflight (pendiente #2 de CLAUDE.md). Estrategia confirmada:
    trunk-based + previews de Vercel (NO branch development permanente).
 
-2. **SEGURIDAD.** `next` 14.2.18 → 14.2.35 con protocolo supply-chain
+2. **SEGURIDAD.** **[COMPLETADO 2026-08-11 — PR #16 mergeado a main
+   (`0f0d44e`), branch borrada. Dos tandas con doble review ciega + fix
+   pass cada una (reports y reviews commiteados en `.superpowers/sdd/`).
+   Gate cerrado con evidencia: migrate deploy + status OK en staging Y
+   production (strings directos de consola de Neon) pre-smoke/pre-merge;
+   smoke de preview completo con CSP enforced y console limpia; smoke de
+   prod (/analisis) ídem; POST manual al csp-report de prod → 204 con log
+   en Runtime Logs; violations reales en prod: CERO (el eval de
+   /promotoria en Report-Only queda como ítem pre-T6). Suite 461/49.
+   Audit: 70 → 50 vulns (criticals accionables cerrados; restantes
+   triageados en este ledger). Detalle:
+   `docs/handoff/session-t2-close.md`.]** `next` 14.2.18 → 14.2.35 con protocolo supply-chain
    completo + verificación post-bump (grep de páginas RSC que consulten DB
    sin `requireAuth` propio — determina el blast radius real del CVE de
    middleware; re-run de `pnpm audit` registrando los highs restantes).
