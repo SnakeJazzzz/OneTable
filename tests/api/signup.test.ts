@@ -9,19 +9,24 @@ vi.mock('@/auth', () => ({
 }));
 
 import { POST } from '@/app/api/auth/signup/route';
+import { windowStartFor, AUTH_WINDOW_MS, AUTH_IP_LIMIT } from '@/lib/rate-limit';
 
 const db = new PrismaClient();
 
 // Use timestamped emails so reruns don't collide if cleanup fails.
 const RUN_TAG = `g1-signup-${Date.now()}`;
 const newEmail = (suffix: string) => `${RUN_TAG}-${suffix}@example.test`;
+// Per-run unique IP: every POST consumes one unit of the signup:ip budget
+// (T2 §5.4), so a shared 'unknown' bucket would accumulate across suite
+// reruns inside one 15-min fixed window and eventually 429 unrelated tests.
+const RUN_IP = `${RUN_TAG}-ip`;
 
 const createdEmails: string[] = [];
 
-function jsonRequest(body: unknown): Request {
+function jsonRequest(body: unknown, ip: string = RUN_IP): Request {
   return new Request('http://localhost/api/auth/signup', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
     body: JSON.stringify(body),
   });
 }
@@ -42,6 +47,7 @@ describe('POST /api/auth/signup', () => {
   });
 
   afterAll(async () => {
+    await db.rateLimit.deleteMany({ where: { key: { startsWith: 'g1-signup-' } } });
     await db.$disconnect();
   });
 
@@ -170,5 +176,34 @@ describe('POST /api/auth/signup', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('INVALID_CLIENT_NAME');
+  });
+
+  // T2 §5.4: per-IP rate limit, same policy as login IP (20/15min), honest
+  // 429 (unlike login's generic null — deliberate asymmetry, no account
+  // oracle to protect on signup).
+  it('returns 429 RATE_LIMITED when the IP is over the limit', async () => {
+    const ip = `${RUN_TAG}-ip-limited`;
+    // Exhaust the current fixed window for this IP; the next POST's consume
+    // increments past the limit and must be rejected before any work.
+    await db.rateLimit.create({
+      data: {
+        scope: 'signup:ip',
+        key: ip,
+        windowStart: windowStartFor(AUTH_WINDOW_MS),
+        count: AUTH_IP_LIMIT,
+      },
+    });
+
+    const email = newEmail('ratelimited');
+    const res = await POST(
+      jsonRequest({ email, password: 'secret1234', clientName: 'Limited Co' }, ip),
+    );
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('RATE_LIMITED');
+
+    // The rejected attempt never reached the DB write path.
+    const user = await db.user.findUnique({ where: { email } });
+    expect(user).toBeNull();
   });
 });

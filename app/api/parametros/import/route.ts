@@ -15,6 +15,7 @@
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
 import { importParameters } from '@/core/parameters/import';
+import { MAX_UPLOAD_FILE_BYTES } from '@/lib/upload-limits';
 
 export async function POST(req: Request): Promise<Response> {
   const sessionOrError = await requireAuth();
@@ -35,6 +36,20 @@ export async function POST(req: Request): Promise<Response> {
   const part = form.get('file');
   if (!(part instanceof File)) {
     return errorResponse('NO_FILE', 'No file in request (field "file")', 400);
+  }
+
+  // 10MB cap (T2 §2.9), checked on `part.size` after formData() (the body
+  // is already in memory at this point) but BEFORE the xlsx parse, which is
+  // where the real risk lives (unpatched xlsx advisories). Status 413 +
+  // FILE_TOO_LARGE are pinned by the brief; the `{ error: { code, message } }`
+  // shape follows the repo convention (errorResponse in lib/auth-helpers.ts,
+  // same as the sibling responses in this route).
+  if (part.size > MAX_UPLOAD_FILE_BYTES) {
+    return errorResponse(
+      'FILE_TOO_LARGE',
+      'El archivo supera el límite de 10 MB.',
+      413,
+    );
   }
 
   const fileBuffer = Buffer.from(await part.arrayBuffer());

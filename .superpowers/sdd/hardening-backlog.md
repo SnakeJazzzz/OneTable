@@ -308,6 +308,12 @@
       `components/parametros/sku-table.tsx:347` ("Agregá", "importá").
       Grep de re-verificación al ejecutar el barrido (la lista puede crecer
       con bloques posteriores). Junto con la pasada de identidad visual.
+      Además del voseo: decidir el IDIOMA de los errores per-file de
+      `data/upload` (hoy en INGLÉS, pre-existente y user-visible en la UI
+      de Portales; el cap nuevo de T2 "file too large..." siguió esa
+      convención local — la pasada de T5 decide idioma de TODA esa
+      familia, no solo tuteo). (Observación del filtro externo,
+      2026-08-10.)
 
 - [ ] (origen: smoke T3 B5, hallazgo de producto, 2026-07-16) **El chatbot
       INVENTA cantidades cuando se le piden recomendaciones.** Observado en
@@ -571,6 +577,14 @@
       `DATABASE_URL`); footgun si un futuro `directUrl` de Prisma o script
       lee una legacy → volvería a prod en silencio. Opciones al tocarlo:
       re-scopearlas a Production-only o eliminarlas del sync.
+- [ ] (origen: T2 Tanda B §4, 2026-08-04) **Automatizar `prisma migrate
+      deploy` (buildCommand de Vercel o GitHub Action)** para staging y
+      production, hoy pasos manuales de Michael
+      (`docs/runbooks/t2-migraciones-runbook.md`). **BLOQUEADO por el ítem
+      anterior de vars legacy**: automatizar exigiría strings unpooled en
+      vars/secrets mientras `DATABASE_URL_UNPOOLED`/`POSTGRES_*`/`PG*`
+      sigan apuntando a production en los 3 scopes — un pipeline que las
+      lea migraría production en silencio.
 - [ ] (mismo origen) **Confirmar explícitamente el toggle de
       preview-branching OFF** en la config de la integración Neon (la
       evidencia empírica lo sugiere — preview resuelve a la branch staging
@@ -676,10 +690,21 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
   rider INICIAL de Tanda B** — un renglón en package.json + lockfile con
   `--ignore-scripts` + supply-chain antes/después + suite — para que el
   audit baseline quede limpio de ese critical antes de T6.
+  **EJECUTADO (Tanda B, 2026-08-04):** `pnpm --config.ignore-scripts=true
+  remove @auth/prisma-adapter` (el flag `--ignore-scripts` no existe en
+  `pnpm remove`; se forzó vía config) — 3 paquetes fuera del lockfile
+  (`@auth/prisma-adapter@2.7.4`, `@auth/core@0.37.4` y su transitiva);
+  supply-chain limpio antes y después. Audit post-remoción: **50 vulns
+  (2 critical / 26 high / 20 moderate / 2 low)** — desaparecieron
+  exactamente los 3 GHSAs de `@auth/core@0.37.4` (GHSA-7rqj-j65f-68wh
+  critical, GHSA-xmf8-cvqr-rfgj high, GHSA-x445-f3h2-j279 moderate;
+  grep del audit → 0 matches). Los 2 critical restantes son los de
+  vitest (dev-only, grupo (a) de este triage). El único `@auth/core` del
+  lockfile es 0.41.3 (patched, vía next-auth beta.32).
 
 ## T2 Tanda A — minors de la doble review (no bloquean; registrados 2026-08-03)
 
-- [ ] **[RESUELTO por Michael 2026-08-03] Session rolling + `updateAge`
+- [x] **[RESUELTO por Michael 2026-08-03] Session rolling + `updateAge`
       inerte bajo JWT** (`auth.ts:52`) — bajo `strategy: 'jwt'` la sesión es
       rolling (idle window 24h, re-firma en cada lectura) y `updateAge` es
       NO-OP; comment corregido en el diff de Tanda A. RESOLUCIÓN: rolling
@@ -689,6 +714,10 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       el assert de config en `tests/api/auth-authorize.test.ts`. Expiry
       absoluto vía claim custom en el callback `jwt`: registrado como opción
       futura post-usuarios-reales, no ahora.
+      **EJECUTADO (Tanda B, 2026-08-04):** config queda
+      `{ strategy: 'jwt', maxAge: 86400 }`; comentario de la semántica
+      rolling conservado sin la mención a `updateAge`; assert de config
+      ajustado en `tests/api/auth-authorize.test.ts`.
 - [ ] **csp-report: cap no pre-materialización**
       (`app/api/csp-report/route.ts:30,34`) — `req.text()` bufferea el body
       completo antes del chequeo de 32KB; un POST chunked sin Content-Length
@@ -727,6 +756,33 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       realizada (extensión de Chrome desconectada; regla post-incidente);
       cierre = primer `pnpm dev` de Michael con browser abierto: HMR
       funcionando + cero violations CSP en console (falla ruidosa si no).
+
+## T2 Tanda B — minors de la doble review (no bloquean; registrados 2026-08-04)
+
+- [ ] **Cap de request-level como hardening opcional**
+      (`app/api/data/upload/route.ts`, `app/api/parametros/import/route.ts`)
+      — `req.formData()` materializa el body ANTES del chequeo de
+      `file.size`; en Vercel el límite de body de la plataforma acota, en
+      dev/self-host no. Comments corregidos en el fix pass de Tanda B;
+      hardening candidato: pre-check de `Content-Length` antes de `formData()`.
+- [ ] **Sin cap de longitud en `key` del rate limiter** (`lib/rate-limit.ts`;
+      `auth.ts` scope `login:email`) — un "email" de ~5KB excede el máximo de
+      btree index row (~2.7KB) → el upsert lanza → fail-open silencioso del
+      scope email para esas keys + ruido de logs (scope IP intacto).
+      Candidato: truncar/hashear keys largas antes del SQL.
+- [ ] **Sin TTL/sweep global de filas stale** (`lib/rate-limit.ts`) — el
+      cleanup lazy solo borra ventanas viejas del MISMO (scope,key); keys
+      one-shot (p.ej. barrido distribuido de muchas IPs) dejan filas
+      permanentes — crecimiento sin cota en Neon Free tier. Candidato:
+      sweep global periódico (cron o piggyback).
+- [ ] **429 de signup sin `Retry-After`** (`app/api/auth/signup/route.ts`)
+      — el fin de ventana es computable; cosmético, mejora UX de clientes
+      legítimos.
+- [ ] **Flake residual de frontera de ventana en tests**
+      (`tests/api/auth-authorize.test.ts` casos limited,
+      `tests/api/signup.test.ts` caso 429) — si la frontera de 15min cae
+      entre seed y llamada, el test falla (~≪0.1%); el assert está blindado
+      window-agnostic, el seed no. Registrar por si aparece en CI.
 
 ## Pendiente-por-archivo
 

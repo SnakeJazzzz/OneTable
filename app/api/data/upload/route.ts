@@ -53,6 +53,7 @@ import { normalize } from '@/core/normalizer';
 import { buildMappingLookup } from '@/core/normalizer/lookup';
 import type { MappingLookup } from '@/core/normalizer/types';
 import { parseChain, parseFileType } from '@/lib/portales/chains';
+import { MAX_UPLOAD_FILE_BYTES } from '@/lib/upload-limits';
 
 // =====================================================================
 // File detection
@@ -223,6 +224,18 @@ async function processOneFile(
   // Do NOT silently fall back to filename detection — that would mask bad input.
   if (ctx.explicitError !== null) {
     return { filename: file.name, error: ctx.explicitError };
+  }
+
+  // 10MB per-file cap (T2 §2.9), checked on `file.size` after formData()
+  // (the body is already in memory at this point) but BEFORE the xlsx
+  // parse, which is where the real risk lives (unpatched xlsx advisories).
+  // Per-file error shape — the other files in a multi-file request still
+  // get processed.
+  if (file.size > MAX_UPLOAD_FILE_BYTES) {
+    return {
+      filename: file.name,
+      error: `file too large: ${file.size} bytes (max ${MAX_UPLOAD_FILE_BYTES} bytes / 10 MB)`,
+    };
   }
 
   // Explicit wins; filename detection is the back-compat fallback.

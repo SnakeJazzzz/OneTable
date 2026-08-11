@@ -229,6 +229,25 @@ model SelloutData {
   @@index([uploadId])
 }
 
+// =====================================================================
+// Rate limiting (hardening T2 §5)
+// =====================================================================
+
+// Fixed-window rate limit counters. windowStart is computed in the app as
+// floor(now / windowMs) * windowMs — windows are FIXED and boundary-aligned,
+// never rolling. The composite @@id is the only constraint (approved by the
+// filter: the raw ON CONFLICT in lib/rate-limit.ts targets this PK; an extra
+// index would be redundant). Stale windows are cleaned up lazily by the same
+// increment statement.
+model RateLimit {
+  scope       String
+  key         String
+  windowStart DateTime
+  count       Int      @default(1)
+
+  @@id([scope, key, windowStart])
+}
+
 model UnmappedProduct {
   id                String    @id @default(cuid())
   clientId          String

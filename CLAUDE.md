@@ -47,6 +47,7 @@ DB: proyecto Neon `quiet-dawn-60852807` (integración Vercel↔Neon, Postgres 17
 - **Backups:** `.github/workflows/backup.yml` — `pg_dump` DIARIO cifrado de production, artifacts con retención 7 días. Es el RESPALDO PRIMARIO (el PITR del Free tier no alcanza). Secrets: `BACKUP_DATABASE_URL` + `BACKUP_ENCRYPTION_KEY`.
 - **Health:** `GET /api/health` público (`{status, db}`, excluido del matcher del middleware), monitoreado por UptimeRobot.
 - `scripts/preflight.ts` es **LEGACY** (obsoleto por esta arquitectura, decisión de Michael 2026-07-20): NO correr — trunca la DB y no tiene guard.
+- **Migraciones por entorno (desde hardening T2, 2026-08-04):** `prisma migrate dev` corre SOLO contra `development` (la ejecuta CC exportando `DATABASE_URL` en el shell del comando desde `.env.local` — el CLI de Prisma NO lee `.env.local`, solo `./.env`, `prisma/.env` o el shell env). `staging` y `production` se migran con `prisma migrate deploy` que corre MICHAEL desde su terminal con el connection string **DIRECTO/unpooled** copiado de la **CONSOLA DE NEON** (Prisma migrate es incompatible con el pooler): staging ANTES del smoke de preview, production ANTES del merge. **PROHIBIDO que cualquier tooling lea las vars legacy de Vercel (`DATABASE_URL_UNPOOLED`, `POSTGRES_*`, `PG*`)** — apuntan a PRODUCTION en los 3 scopes (ítem abierto del ledger). Pasos: `docs/runbooks/t2-migraciones-runbook.md`.
 - Setup humano paso a paso: `docs/runbooks/t1-entornos-runbook.md`.
 
 ---
