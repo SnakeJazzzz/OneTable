@@ -22,19 +22,34 @@
  *      cost/context without breaking long conversations. An empty post-trim
  *      window (no user message at all) IS a 400 INVALID_MESSAGES: there is
  *      nothing valid to send to the model.
- *   4. safeValidateUIMessages → 400 INVALID_MESSAGES on malformed messages.
+ *   4. Size caps over the trimmed window (T3 hardening): >8000 chars summed
+ *      across the text parts of any `role: 'user'` message (exactly 8000
+ *      passes), or >64KB of serialized JSON for ANY message (the client-side
+ *      history means an authenticated client can forge giant "tool results")
+ *      → 400 MESSAGE_TOO_LONG.
+ *   5. safeValidateUIMessages → 400 INVALID_MESSAGES on malformed messages.
  *      No validator details reach the client; the server log carries the
  *      error name only, never the payload.
- *   5. streamText with the 7 read-only tools (buildTools) bound to the
+ *   6. Per-client daily quota (T3 hardening): the limit is read from
+ *      Client.chatDailyLimit (default 40), then consumeRateLimit charges one
+ *      unit against scope 'chat:client' keyed by the SESSION clientId over a
+ *      fixed 24h window → 429 RATE_LIMITED when exhausted. The consume runs
+ *      immediately before streamText, so `count ≤ limit` ≡ "requests that
+ *      actually reached the model" — a 400/401 never burns quota. FAIL-OPEN
+ *      (T2 §5.2): a limiter DB error degrades to "no limit", never to a
+ *      broken chat.
+ *   7. streamText with the 7 read-only tools (buildTools) bound to the
  *      session's { clientId, userId } and a lazy threshold-cuts loader.
- *      Tool loop capped at stepCountIs(5). Incomplete tool calls in the
- *      history are ignored (fix pass M2) so an aborted tool step can't
- *      poison the conversation.
- *   6. UI message stream response; stream errors surface as the literal
+ *      Tool loop capped at stepCountIs(5), output capped at
+ *      maxOutputTokens: 2000. Incomplete tool calls in the history are
+ *      ignored (fix pass M2) so an aborted tool step can't poison the
+ *      conversation.
+ *   8. UI message stream response; stream errors surface as the literal
  *      'CHAT_ERROR' — never the underlying message/stack.
  *
  * Stateless by design: no DB writes, no conversation persistence (history
- * lives client-side). Rate limiting: deferred (hardening backlog).
+ * lives client-side). The only DB reads are the chatDailyLimit lookup and
+ * the rate-limit counter (plus whatever the tools query per request).
  *
  * Runtime: Node (first route in the repo to pin it) — Prisma does not run on
  * the edge runtime, and the tool executes hit Neon through PrismaClient.
@@ -45,11 +60,13 @@ import {
   safeValidateUIMessages,
   stepCountIs,
   streamText,
+  type SystemModelMessage,
   type UIMessage,
 } from 'ai';
 
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { consumeRateLimit } from '@/lib/rate-limit';
 import { getThresholdCuts } from '@/lib/thresholds';
 import { chatModel } from '@/lib/ai/model';
 import { buildTools } from '@/core/ai/tools';
@@ -60,6 +77,26 @@ export const runtime = 'nodejs';
 // history can't blow up cost/context; the window is then aligned to start on
 // a user message (see trimMessages).
 const MAX_CHAT_MESSAGES = 30;
+
+// Size caps (T3): both run pre-validation over the TRIMMED window and both
+// reject with 400 MESSAGE_TOO_LONG.
+//   - MAX_USER_MESSAGE_CHARS caps the summed text parts of each user message
+//     (the real vector: typed/pasted text). Exactly 8000 chars passes.
+//   - MAX_MESSAGE_JSON_BYTES is the coarse cap on the serialized JSON of ANY
+//     message: the history is client-side, so an authenticated client can
+//     forge oversized "tool result" parts inside assistant messages. 64KB
+//     clears every legitimate result of the 7 tools (small row limits by
+//     design) with room to spare.
+const MAX_USER_MESSAGE_CHARS = 8000;
+const MAX_MESSAGE_JSON_BYTES = 64 * 1024;
+
+// Daily chat quota (T3): fixed window aligned to the epoch boundary —
+// windowStart = floor(now / 86_400_000) * 86_400_000 (lib/rate-limit.ts
+// semantics). The "day" resets at midnight UTC = 18:00 in CDMX (UTC-6 fixed;
+// Mexico has no DST since 2022). NOT rolling-24h, NOT local midnight. The
+// limit itself is per-client (Client.chatDailyLimit, default 40).
+const CHAT_RATE_SCOPE = 'chat:client';
+const CHAT_RATE_WINDOW_MS = 86_400_000;
 
 // Stable module-level const — NOTHING volatile interpolated (no date, no
 // clientId): byte-identical across requests so gateway prompt caching works
@@ -75,6 +112,10 @@ Data discipline:
 - Only report figures that come from tool results. Never invent, estimate, or extrapolate numbers.
 - If none of the tools can answer the question, say so plainly instead of guessing.
 - Prefer aggregated tools with a small limit. Do not fetch raw rows (getOneTableRows) when an aggregate answers the question.
+- Quantitative recommendations or plans (reorder quantities, targets, forecasts): give a figure ONLY if every number is derived arithmetically from tool results of THIS conversation, and show the operation (e.g. "1,200 sold − 800 in stock = 400 to reorder"). If you cannot derive it, say explicitly that the data gives no basis for a specific figure, stop there, and name the data that would be needed.
+- Derived arithmetic must be exact: compute carefully, round percentages to one decimal or present them as approximate (e.g. "≈35%"). Never present an imprecise figure as precise.
+- Report every figure at the exact level the tool returned it: never attribute a chain-level aggregate to a product, nor a product-level figure to a chain.
+- Naming: Soriana, Chedraui, HEB, etc. are "cadenas" or "retailers". NEVER call them "cuentas de la plataforma" or reinterpret what they are.
 
 Periods:
 - If the user does not specify a month, call tools WITHOUT periodYear/periodMonth: they resolve the most recent period with data and echo the resolved periodYear/periodMonth in their result. Always state which month and year your answer refers to.
@@ -84,6 +125,22 @@ Interpreting tool results:
 - getSalesTrend expresses "no data" differently: it returns rows as an empty array ([]) when there is no data in the requested window. An empty trend is NOT an error and does not mean the client has no data at all — report it as "no data in that window".
 - A result of {"error":"TOOL_EXECUTION_ERROR"} is a transient technical failure. Offer to retry; do not speculate about the cause.
 - When a result includes totalRows and totalRows is greater than the number of rows returned, the list was truncated: tell the user you are showing N of M (in Spanish, e.g. "mostrando 20 de 3,188").`;
+
+// System message with the Anthropic prompt-cache breakpoint (T3 §4.6).
+// Anchoring verified against the installed SDK: `system` accepts a
+// SystemModelMessage whose providerOptions land on the system message of the
+// LanguageModelV3 prompt (ai@6.0.168), and the gateway serializes the full
+// call options verbatim (@ai-sdk/gateway GatewayLanguageModel.getArgs), so
+// `anthropic.cacheControl` reaches the provider message-level — the mechanism
+// the Anthropic provider maps to `cache_control` on the system block. One
+// breakpoint here caches tools + system: Anthropic's cache prefix order is
+// tools → system → messages, and a breakpoint caches everything before it.
+// Byte-stable like SYSTEM_PROMPT: module const, zero volatile interpolation.
+const SYSTEM_MESSAGE: SystemModelMessage = {
+  role: 'system',
+  content: SYSTEM_PROMPT,
+  providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+};
 
 // Defensive role accessor — strip/trim run pre-validation on unknown input.
 function roleOf(m: unknown): unknown {
@@ -110,6 +167,41 @@ function trimMessages(messages: unknown[]): unknown[] {
   const window = nonSystem.slice(-MAX_CHAT_MESSAGES);
   const firstUserIdx = window.findIndex((m) => roleOf(m) === 'user');
   return firstUserIdx === -1 ? [] : window.slice(firstUserIdx);
+}
+
+// Summed length of the text parts of a message (defensive: runs
+// pre-validation on unknown input, like roleOf). Non-text/malformed parts
+// contribute 0 — they are bounded by the coarse JSON cap instead.
+function userTextLength(m: unknown): number {
+  const parts =
+    typeof m === 'object' && m !== null ? (m as { parts?: unknown }).parts : undefined;
+  if (!Array.isArray(parts)) return 0;
+  let total = 0;
+  for (const part of parts) {
+    if (
+      typeof part === 'object' &&
+      part !== null &&
+      (part as { type?: unknown }).type === 'text' &&
+      typeof (part as { text?: unknown }).text === 'string'
+    ) {
+      total += ((part as { text: string }).text).length;
+    }
+  }
+  return total;
+}
+
+// Both T3 size caps over the trimmed window. True → reject 400
+// MESSAGE_TOO_LONG. Boundary: exactly MAX_USER_MESSAGE_CHARS passes.
+function exceedsSizeCaps(trimmed: unknown[]): boolean {
+  for (const m of trimmed) {
+    if (roleOf(m) === 'user' && userTextLength(m) > MAX_USER_MESSAGE_CHARS) {
+      return true;
+    }
+    if (Buffer.byteLength(JSON.stringify(m), 'utf8') > MAX_MESSAGE_JSON_BYTES) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -147,6 +239,14 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
+  if (exceedsSizeCaps(trimmed)) {
+    return errorResponse(
+      'MESSAGE_TOO_LONG',
+      'A message exceeds the allowed size',
+      400,
+    );
+  }
+
   const validated = await safeValidateUIMessages<UIMessage>({
     messages: trimmed,
   });
@@ -157,9 +257,42 @@ export async function POST(req: Request): Promise<Response> {
     return errorResponse('INVALID_MESSAGES', 'Messages are not valid', 400);
   }
 
+  // Per-client daily limit, read from the Client row (select minimal). If the
+  // read throws (DB down), it propagates to Next's default 500 — accepted
+  // behavior, no new handling here (T3 brief §4.2/E4; T4's route-error sweep
+  // subsumes it).
+  const client = await db.client.findUnique({
+    where: { id: clientId },
+    select: { chatDailyLimit: true },
+  });
+  if (client === null) {
+    // Client deleted while the session is still alive (E4): treat as an auth
+    // problem, never invoke the model, never burn quota.
+    return errorResponse('UNAUTHORIZED', 'Sign in required', 401);
+  }
+
+  // Consume immediately before streamText: count ≤ limit ≡ requests that
+  // actually reached the model (a 400/401 above never burns quota).
+  // FAIL-OPEN on limiter DB errors (T2 §5.2) — degrades to "no limit".
+  const verdict = await consumeRateLimit({
+    scope: CHAT_RATE_SCOPE,
+    key: clientId,
+    limit: client.chatDailyLimit,
+    windowMs: CHAT_RATE_WINDOW_MS,
+  });
+  if (!verdict.allowed) {
+    return errorResponse(
+      'RATE_LIMITED',
+      'Alcanzaste tu límite diario de preguntas al asistente',
+      429,
+    );
+  }
+
   const result = streamText({
     model: chatModel(),
-    system: SYSTEM_PROMPT,
+    // SystemModelMessage (not a bare string) so the Anthropic cache
+    // breakpoint travels with it — see SYSTEM_MESSAGE above.
+    system: SYSTEM_MESSAGE,
     // ignoreIncompleteToolCalls (fix pass M2): an aborted tool step (T3's
     // stop()/tab close mid-step) leaves a tool part in 'input-available' in
     // the client-side history; without the flag that converts to an orphan
@@ -178,6 +311,9 @@ export async function POST(req: Request): Promise<Response> {
       loadCuts: () => getThresholdCuts(db, clientId),
     }),
     stopWhen: stepCountIs(5),
+    // Output cap (T3): bounds the cost of a single response. 2000 tokens is
+    // ample for a data answer; the tool loop is already capped at 5 steps.
+    maxOutputTokens: 2000,
   });
 
   // onError ALWAYS returns the generic literal — never the underlying
