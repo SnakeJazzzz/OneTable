@@ -864,6 +864,16 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       La garantía real es el const de módulo sin interpolación
       (`route.ts:105-143`, verificado por lectura). Anotado el límite del
       assert; reemplazar solo si se vuelve a tocar el archivo.
+- [ ] (F-1 quality, fix caching §4.6) **Assert de `providerOptions` solo en
+      el primer doStreamCall** (`tests/ai/chat-route.test.ts:843-850`): el
+      test del gateway caching asserta
+      `providerOptions.gateway.caching === 'auto'` solo en
+      `doStreamCalls[0]`; un assert de una línea en el test multi-step
+      (5 calls) fijaría el invariante "viaja en cada step". Nota del
+      reviewer: el SDK propaga providerOptions por step — verificado en
+      el source de ai@6.0.168 (`dist/index.mjs:7129,7211`) — así que es
+      regression-lock opcional, no gap real. Una línea cuando se vuelva
+      a tocar el archivo.
 
 ## Pendiente-por-archivo
 

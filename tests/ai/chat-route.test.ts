@@ -1,7 +1,7 @@
 // B5 T2 — POST /api/ai/chat route tests (brief §4, groups 1-8 + fix pass
 // M1/M2: client system-message strip, incomplete tool calls ignored) +
-// hardening T3 (group 9: daily quota, size caps, maxOutputTokens, cache
-// breakpoint, anti-invention prompt).
+// hardening T3 (group 9: daily quota, size caps, maxOutputTokens, gateway
+// caching, anti-invention prompt).
 //
 // Pure unit tests: the language model is a MockLanguageModelV3 injected via
 // vi.mock of @/lib/ai/model (NEVER the real gateway — CI has no key), the db
@@ -821,7 +821,7 @@ describe('POST /api/ai/chat — size caps (T3)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Group 11 — hardening T3: model params (output cap, cache breakpoint, prompt)
+// Group 11 — hardening T3: model params (output cap, gateway caching, prompt)
 // ---------------------------------------------------------------------------
 
 describe('POST /api/ai/chat — model params (T3)', () => {
@@ -835,22 +835,24 @@ describe('POST /api/ai/chat — model params (T3)', () => {
     expect(model.doStreamCalls[0].maxOutputTokens).toBe(2000);
   });
 
-  it('the anthropic cacheControl breakpoint rides on the system message of the prompt', async () => {
-    // Anchoring mechanics (verified against ai@6.0.168): a SystemModelMessage
-    // passed as `system` keeps its providerOptions on the prompt's system
-    // message, and the gateway serializes call options verbatim — so this is
-    // exactly what reaches the provider.
+  it('gateway automatic caching rides on the call options, system back to a plain string', async () => {
+    // Post-gate fix of T3 §4.6: caching is the GATEWAY's job —
+    // providerOptions.gateway.caching: 'auto' at the call level (verified
+    // empirically against the real gateway, 2026-08-12). The previous
+    // message-level anthropic.cacheControl anchoring is gone: the system
+    // message must be back to a plain string with NO providerOptions.
     const model = installModel(textStreamResult('ok'));
 
     const res = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
     expect(res.status).toBe(200);
     await res.text();
 
-    const system = model.doStreamCalls[0].prompt[0];
+    const call = model.doStreamCalls[0];
+    expect(call.providerOptions).toEqual({ gateway: { caching: 'auto' } });
+
+    const system = call.prompt[0];
     expect(system.role).toBe('system');
-    expect(system.providerOptions).toEqual({
-      anthropic: { cacheControl: { type: 'ephemeral' } },
-    });
+    expect(system.providerOptions).toBeUndefined();
   });
 
   it('system prompt carries the anti-invention contract and stays byte-stable across requests', async () => {
@@ -871,7 +873,7 @@ describe('POST /api/ai/chat — model params (T3)', () => {
     expect(system1).toContain('cuentas de la plataforma');
 
     // Byte-stable: identical across requests (module const, zero volatile
-    // interpolation — the cache breakpoint depends on this).
+    // interpolation — the gateway's cached prefix depends on this).
     expect(system2).toBe(system1);
   });
 });
