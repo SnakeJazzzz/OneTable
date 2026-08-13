@@ -60,7 +60,6 @@ import {
   safeValidateUIMessages,
   stepCountIs,
   streamText,
-  type SystemModelMessage,
   type UIMessage,
 } from 'ai';
 
@@ -99,8 +98,9 @@ const CHAT_RATE_SCOPE = 'chat:client';
 const CHAT_RATE_WINDOW_MS = 86_400_000;
 
 // Stable module-level const — NOTHING volatile interpolated (no date, no
-// clientId): byte-identical across requests so gateway prompt caching works
-// (§9.1.2). The "current period" is resolved by the tools, not the prompt.
+// clientId): byte-identical across requests so the gateway's automatic prompt
+// caching can reuse the prefix (§9.1.2, mechanism at the streamText call
+// below). The "current period" is resolved by the tools, not the prompt.
 // Prompt is in English (technical standard); the assistant answers in Spanish.
 const SYSTEM_PROMPT = `You are OneTable's data assistant for a retail supplier in Mexico. You answer questions about the current client's sell-out (sales) and inventory data across retail chains, using ONLY the provided tools.
 
@@ -125,22 +125,6 @@ Interpreting tool results:
 - getSalesTrend expresses "no data" differently: it returns rows as an empty array ([]) when there is no data in the requested window. An empty trend is NOT an error and does not mean the client has no data at all — report it as "no data in that window".
 - A result of {"error":"TOOL_EXECUTION_ERROR"} is a transient technical failure. Offer to retry; do not speculate about the cause.
 - When a result includes totalRows and totalRows is greater than the number of rows returned, the list was truncated: tell the user you are showing N of M (in Spanish, e.g. "mostrando 20 de 3,188").`;
-
-// System message with the Anthropic prompt-cache breakpoint (T3 §4.6).
-// Anchoring verified against the installed SDK: `system` accepts a
-// SystemModelMessage whose providerOptions land on the system message of the
-// LanguageModelV3 prompt (ai@6.0.168), and the gateway serializes the full
-// call options verbatim (@ai-sdk/gateway GatewayLanguageModel.getArgs), so
-// `anthropic.cacheControl` reaches the provider message-level — the mechanism
-// the Anthropic provider maps to `cache_control` on the system block. One
-// breakpoint here caches tools + system: Anthropic's cache prefix order is
-// tools → system → messages, and a breakpoint caches everything before it.
-// Byte-stable like SYSTEM_PROMPT: module const, zero volatile interpolation.
-const SYSTEM_MESSAGE: SystemModelMessage = {
-  role: 'system',
-  content: SYSTEM_PROMPT,
-  providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
-};
 
 // Defensive role accessor — strip/trim run pre-validation on unknown input.
 function roleOf(m: unknown): unknown {
@@ -290,9 +274,21 @@ export async function POST(req: Request): Promise<Response> {
 
   const result = streamText({
     model: chatModel(),
-    // SystemModelMessage (not a bare string) so the Anthropic cache
-    // breakpoint travels with it — see SYSTEM_MESSAGE above.
-    system: SYSTEM_MESSAGE,
+    system: SYSTEM_PROMPT,
+    // Prompt caching (T3 §4.6, post-gate fix): the GATEWAY places the cache
+    // breakpoints itself — providers with explicit caching (Anthropic) need
+    // `gateway.caching: 'auto'` at the call level (docs:
+    // vercel.com/docs/ai-gateway/models-and-providers/automatic-caching).
+    // Verified empirically against the real gateway (scratch, 2026-08-12):
+    // request 1 cache write > 0, request 2 cache read > 0. The previous
+    // mechanism (SystemModelMessage with message-level anthropic.cacheControl)
+    // was REMOVED, not kept alongside: production observability (2026-08-12,
+    // deployment 3ff2438) showed cache read/write = 0 on every request with
+    // it, so it cannot be trusted end-to-end through the gateway — keeping a
+    // second, unverifiable mechanism with a comment claiming it works is
+    // honesty debt. SYSTEM_PROMPT stays byte-stable (see its declaration):
+    // any volatile interpolation would break the cached prefix.
+    providerOptions: { gateway: { caching: 'auto' } },
     // ignoreIncompleteToolCalls (fix pass M2): an aborted tool step (T3's
     // stop()/tab close mid-step) leaves a tool part in 'input-available' in
     // the client-side history; without the flag that converts to an orphan
