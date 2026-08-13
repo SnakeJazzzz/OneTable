@@ -8,7 +8,10 @@
 // non-technical indicator: never the tool name, never the raw payload.
 // Errors (useChat `error`, which also captures the in-band CHAT_ERROR
 // literal) render a generic es-MX message + retry; nothing technical
-// reaches the user.
+// reaches the user. Exception (T3): a 429 RATE_LIMITED from the daily quota
+// gets its own copy (retrying is useless until the next window) with the
+// reset hour computed client-side — next UTC midnight in the browser's local
+// time, never a hardcoded "18:00" (E3: border municipalities observe DST).
 //
 // Accessibility: the aria-live region announces STATUS transitions
 // (thinking / done / error) — never the streaming text container, which
@@ -25,6 +28,34 @@ import { cn } from '@/lib/utils';
 
 const ERROR_COPY =
   'Ocurrió un error al procesar tu pregunta. Vuelve a intentarlo.';
+
+// A non-OK response makes DefaultChatTransport throw `new Error(await
+// response.text())` (ai@6.0.168, HttpChatTransport.sendMessages), so a 429
+// arrives with error.message = the raw JSON body of the server's
+// errorResponse(): {"error":{"code":"RATE_LIMITED",...}} — verified
+// empirically against the installed transport (T3).
+function isRateLimitError(error: Error): boolean {
+  try {
+    const parsed = JSON.parse(error.message) as { error?: { code?: string } };
+    return parsed.error?.code === 'RATE_LIMITED';
+  } catch {
+    return false;
+  }
+}
+
+// The daily quota window is fixed and UTC-aligned (server-side), so it
+// resets at the next UTC midnight. Rendered in the BROWSER's local time —
+// never hardcoded (E3).
+function quotaResetLocalTime(): string {
+  const now = new Date();
+  const nextUtcMidnight = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
+  );
+  return nextUtcMidnight.toLocaleTimeString('es-MX', {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 // Generic tool-in-progress copy (external-filter minor, 2026-07-16): the UI
 // NEVER shows the tool name or its payload.
@@ -128,14 +159,24 @@ export function ChatPanel() {
         {status === 'submitted' && (
           <p className="text-xs italic text-muted-foreground">Pensando…</p>
         )}
-        {error && (
-          <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3">
-            <p className="text-sm text-foreground">{ERROR_COPY}</p>
-            <Button type="button" onClick={handleRetry} className="h-8 px-3">
-              Reintentar
-            </Button>
-          </div>
-        )}
+        {error &&
+          (isRateLimitError(error) ? (
+            // Daily quota reached: specific copy, NO retry button — retrying
+            // cannot succeed until the window resets.
+            <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3">
+              <p className="text-sm text-foreground">
+                Alcanzaste tu límite diario de preguntas al asistente. Podrás
+                volver a preguntar a las {quotaResetLocalTime()}.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3">
+              <p className="text-sm text-foreground">{ERROR_COPY}</p>
+              <Button type="button" onClick={handleRetry} className="h-8 px-3">
+                Reintentar
+              </Button>
+            </div>
+          ))}
       </div>
 
       {/* Status announcer for screen readers: state / completion only, NEVER

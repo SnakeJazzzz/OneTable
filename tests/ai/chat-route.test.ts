@@ -1,12 +1,16 @@
 // B5 T2 — POST /api/ai/chat route tests (brief §4, groups 1-8 + fix pass
-// M1/M2: client system-message strip, incomplete tool calls ignored).
+// M1/M2: client system-message strip, incomplete tool calls ignored) +
+// hardening T3 (group 9: daily quota, size caps, maxOutputTokens, cache
+// breakpoint, anti-invention prompt).
 //
 // Pure unit tests: the language model is a MockLanguageModelV3 injected via
 // vi.mock of @/lib/ai/model (NEVER the real gateway — CI has no key), the db
-// is an inert stub (every method a spy — the route and the mocked query layer
-// must never touch it), and core/kpis/queries + lib/thresholds are vi.mock-ed
-// with spies. buildTools is REAL: group 5 is the route→buildTools→context
-// integration test that T1 could not cover.
+// is an inert stub (every method a spy — since T3 the route reads EXACTLY
+// db.client.findUnique for the quota limit; nothing else may touch the db),
+// @/lib/rate-limit is mocked (its own semantics are covered by the T2 suite),
+// and core/kpis/queries + lib/thresholds are vi.mock-ed with spies.
+// buildTools is REAL: group 5 is the route→buildTools→context integration
+// test that T1 could not cover.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MockLanguageModelV3 } from 'ai/test';
 import { simulateReadableStream } from 'ai';
@@ -57,6 +61,11 @@ vi.mock('@/lib/db', () => {
 
 vi.mock('@/lib/thresholds', () => ({ getThresholdCuts: vi.fn() }));
 
+// Mocked at the module level: the limiter's own semantics (atomic upsert,
+// fixed windows, fail-open) are covered by the T2 suite. Here we only assert
+// the route's CONTRACT with it (scope/key/limit/window + when it is called).
+vi.mock('@/lib/rate-limit', () => ({ consumeRateLimit: vi.fn() }));
+
 vi.mock('@/lib/ai/model', () => ({
   CHAT_MODEL_ID: 'anthropic/claude-haiku-4.5',
   chatModel: vi.fn(),
@@ -76,6 +85,7 @@ vi.mock('@/core/kpis/queries', () => ({
 import { POST } from '@/app/api/ai/chat/route';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
 import { db } from '@/lib/db';
+import { consumeRateLimit } from '@/lib/rate-limit';
 import { getThresholdCuts } from '@/lib/thresholds';
 import { chatModel } from '@/lib/ai/model';
 import {
@@ -163,6 +173,16 @@ function installModel(
   return model;
 }
 
+// Quota-lookup result: the route selects ONLY chatDailyLimit, so at runtime
+// findUnique resolves exactly this narrow shape. The cast is structural, not
+// cosmetic: vi.mocked instantiates Prisma's generic findUnique signature at
+// its constraint, so mockResolvedValue demands the FULL Client payload
+// (verified empirically — tsc rejects the uncast literal), while the route's
+// `select` guarantees the narrow shape is what production code receives.
+function quotaClient(chatDailyLimit: number) {
+  return { chatDailyLimit } as Awaited<ReturnType<typeof db.client.findUnique>>;
+}
+
 function makeRequest(body: unknown): Request {
   return new Request('http://localhost/api/ai/chat', {
     method: 'POST',
@@ -193,9 +213,11 @@ function promptMessageText(msg: { content: unknown }): string {
     .join('');
 }
 
-// Walks the db stub and returns every spy — asserting none was called is the
-// group-8 "server stateless" check (stronger than writes-only: with the query
-// layer mocked, NOTHING may reach the PrismaClient at all).
+// Walks the db stub and returns every spy — asserting none was called BEYOND
+// the T3 quota lookup is the group-8 "server stateless" check (stronger than
+// writes-only: with the query layer mocked, nothing else may reach the
+// PrismaClient at all). db.client.findUnique is the ONE sanctioned read
+// since T3 (chatDailyLimit lookup) — still zero writes, zero persistence.
 function collectDbSpies(node: unknown, out: Array<ReturnType<typeof vi.fn>> = []) {
   if (typeof node === 'function') {
     out.push(node as ReturnType<typeof vi.fn>);
@@ -208,7 +230,8 @@ function collectDbSpies(node: unknown, out: Array<ReturnType<typeof vi.fn>> = []
 }
 
 function expectNoDbActivity() {
-  const spies = collectDbSpies(db);
+  const quotaLookup = db.client.findUnique as unknown;
+  const spies = collectDbSpies(db).filter((spy) => spy !== quotaLookup);
   expect(spies.length).toBeGreaterThan(0);
   for (const spy of spies) expect(spy).not.toHaveBeenCalled();
 }
@@ -221,6 +244,10 @@ beforeEach(() => {
   // tests/ai/tools.test.ts of T1).
   vi.resetAllMocks();
   vi.mocked(requireAuth).mockResolvedValue(SESSION);
+  // T3 defaults: quota lookup finds the Client with the schema default (40)
+  // and the limiter allows. Individual tests override either.
+  vi.mocked(db.client.findUnique).mockResolvedValue(quotaClient(40));
+  vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, count: 1 });
   vi.mocked(getThresholdCuts).mockResolvedValue({
     critico: 7,
     riesgo: 14,
@@ -630,5 +657,221 @@ describe('POST /api/ai/chat — incomplete tool call in history (fix pass M2)', 
     expect(dump).not.toContain('call-orphan');
     expect(dump).not.toContain('tool-call');
     expect(dump).toContain('Déjame consultar');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group 9 — hardening T3: daily quota (429 / E4 / fail-open)
+// ---------------------------------------------------------------------------
+
+describe('POST /api/ai/chat — daily quota (T3)', () => {
+  it('429 RATE_LIMITED with the standard shape when the limiter denies; model never invoked', async () => {
+    vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: false, count: 41 });
+    const model = installModel(textStreamResult('nope'));
+
+    const res = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
+
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body.error.code).toBe('RATE_LIMITED');
+    expect(typeof body.error.message).toBe('string');
+    expect(vi.mocked(chatModel)).not.toHaveBeenCalled();
+    expect(model.doStreamCalls).toHaveLength(0);
+  });
+
+  it('a valid request consumes with the pinned scope/key/window and the Client limit', async () => {
+    installModel(textStreamResult('ok'));
+
+    const res = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
+    expect(res.status).toBe(200);
+    await res.text();
+
+    // Limit read from the Client row, select minimal, keyed by the SESSION
+    // clientId (never the body).
+    expect(vi.mocked(db.client.findUnique)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(db.client.findUnique)).toHaveBeenCalledWith({
+      where: { id: SESSION.clientId },
+      select: { chatDailyLimit: true },
+    });
+    expect(vi.mocked(consumeRateLimit)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(consumeRateLimit)).toHaveBeenCalledWith({
+      scope: 'chat:client',
+      key: SESSION.clientId,
+      limit: 40,
+      windowMs: 86_400_000,
+    });
+  });
+
+  it('a custom Client.chatDailyLimit is passed through as the limit', async () => {
+    vi.mocked(db.client.findUnique).mockResolvedValue(quotaClient(7));
+    installModel(textStreamResult('ok'));
+
+    const res = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
+    expect(res.status).toBe(200);
+    await res.text();
+
+    expect(vi.mocked(consumeRateLimit)).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 7 }),
+    );
+  });
+
+  it('fail-open verdict ({allowed: true, count: 0} — T2 DB-down behavior) → chat responds normally', async () => {
+    vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, count: 0 });
+    installModel(textStreamResult('sigo aquí'));
+
+    const res = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('sigo aquí');
+  });
+
+  it('E4: Client row gone with a live session → 401 standard shape; model and limiter untouched', async () => {
+    vi.mocked(db.client.findUnique).mockResolvedValue(null);
+    const model = installModel(textStreamResult('nope'));
+
+    const res = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
+
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error.code).toBe('UNAUTHORIZED');
+    expect(vi.mocked(chatModel)).not.toHaveBeenCalled();
+    expect(model.doStreamCalls).toHaveLength(0);
+    expect(vi.mocked(consumeRateLimit)).not.toHaveBeenCalled();
+  });
+
+  it('a 400 (invalid body) never consumes quota', async () => {
+    installModel(textStreamResult('nope'));
+
+    const res = await POST(makeRequest('{not json'));
+    expect(res.status).toBe(400);
+
+    expect(vi.mocked(db.client.findUnique)).not.toHaveBeenCalled();
+    expect(vi.mocked(consumeRateLimit)).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group 10 — hardening T3: size caps (8000 chars user text / 64KB any message)
+// ---------------------------------------------------------------------------
+
+describe('POST /api/ai/chat — size caps (T3)', () => {
+  it('user message over 8000 chars → 400 MESSAGE_TOO_LONG; no model, no quota consumed', async () => {
+    const model = installModel(textStreamResult('nope'));
+
+    const res = await POST(
+      makeRequest({ messages: [userMsg('1', 'x'.repeat(8001))] }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('MESSAGE_TOO_LONG');
+    expect(vi.mocked(chatModel)).not.toHaveBeenCalled();
+    expect(model.doStreamCalls).toHaveLength(0);
+    expect(vi.mocked(consumeRateLimit)).not.toHaveBeenCalled();
+  });
+
+  it('user message of exactly 8000 chars passes (boundary)', async () => {
+    installModel(textStreamResult('ok'));
+
+    const res = await POST(
+      makeRequest({ messages: [userMsg('1', 'x'.repeat(8000))] }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('ok');
+  });
+
+  it('the 8000 cap sums across the text parts of one user message', async () => {
+    installModel(textStreamResult('nope'));
+
+    const res = await POST(
+      makeRequest({
+        messages: [
+          {
+            id: '1',
+            role: 'user',
+            parts: [
+              { type: 'text', text: 'x'.repeat(5000) },
+              { type: 'text', text: 'y'.repeat(3001) },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('MESSAGE_TOO_LONG');
+  });
+
+  it('an assistant message whose serialized JSON exceeds 64KB → 400 MESSAGE_TOO_LONG (forged tool-result vector)', async () => {
+    installModel(textStreamResult('nope'));
+
+    const res = await POST(
+      makeRequest({
+        messages: [
+          userMsg('1', 'hola'),
+          assistantMsg('2', 'z'.repeat(64 * 1024 + 1)),
+          userMsg('3', '¿sigues?'),
+        ],
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('MESSAGE_TOO_LONG');
+    expect(vi.mocked(consumeRateLimit)).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group 11 — hardening T3: model params (output cap, cache breakpoint, prompt)
+// ---------------------------------------------------------------------------
+
+describe('POST /api/ai/chat — model params (T3)', () => {
+  it('maxOutputTokens: 2000 reaches the model call options', async () => {
+    const model = installModel(textStreamResult('ok'));
+
+    const res = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
+    expect(res.status).toBe(200);
+    await res.text();
+
+    expect(model.doStreamCalls[0].maxOutputTokens).toBe(2000);
+  });
+
+  it('the anthropic cacheControl breakpoint rides on the system message of the prompt', async () => {
+    // Anchoring mechanics (verified against ai@6.0.168): a SystemModelMessage
+    // passed as `system` keeps its providerOptions on the prompt's system
+    // message, and the gateway serializes call options verbatim — so this is
+    // exactly what reaches the provider.
+    const model = installModel(textStreamResult('ok'));
+
+    const res = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
+    expect(res.status).toBe(200);
+    await res.text();
+
+    const system = model.doStreamCalls[0].prompt[0];
+    expect(system.role).toBe('system');
+    expect(system.providerOptions).toEqual({
+      anthropic: { cacheControl: { type: 'ephemeral' } },
+    });
+  });
+
+  it('system prompt carries the anti-invention contract and stays byte-stable across requests', async () => {
+    const model = installModel(textStreamResult('ok'));
+
+    const res1 = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
+    await res1.text();
+    const res2 = await POST(makeRequest({ messages: [userMsg('2', 'otra')] }));
+    await res2.text();
+
+    const system1 = promptMessageText(model.doStreamCalls[0].prompt[0]);
+    const system2 = promptMessageText(model.doStreamCalls[1].prompt[0]);
+
+    // Anti-invention contract markers (brief §4.5, four points).
+    expect(system1).toContain('derived arithmetically from tool results');
+    expect(system1).toContain('round percentages to one decimal');
+    expect(system1).toContain('never attribute a chain-level aggregate to a product');
+    expect(system1).toContain('cuentas de la plataforma');
+
+    // Byte-stable: identical across requests (module const, zero volatile
+    // interpolation — the cache breakpoint depends on this).
+    expect(system2).toBe(system1);
   });
 });

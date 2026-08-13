@@ -103,6 +103,13 @@ responde en preview y prod).
 
 ### T2 — SEGURIDAD (CORTE punto 2)
 
+> **Estado: COMPLETADO 2026-08-11** — PR #16 mergeado a main (`0f0d44e`);
+> gate cerrado con evidencia (migraciones aplicadas a staging y production
+> con strings directos de Neon, smoke de preview con CSP enforced y console
+> limpia, csp-report de prod verificado con POST manual → 204 + log en
+> Runtime Logs, violations reales en prod: CERO). Suite 461 tests / 49
+> archivos. Detalle: `docs/handoff/session-t2-close.md`.
+
 **[CC — código]**
 - Bump `next` 14.2.18 → 14.2.35 con protocolo supply-chain + grep RSC
   post-bump + re-run `pnpm audit` registrando los highs restantes.

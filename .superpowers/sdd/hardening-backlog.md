@@ -52,7 +52,18 @@
    preflight (pendiente #2 de CLAUDE.md). Estrategia confirmada:
    trunk-based + previews de Vercel (NO branch development permanente).
 
-2. **SEGURIDAD.** `next` 14.2.18 → 14.2.35 con protocolo supply-chain
+2. **SEGURIDAD.** **[COMPLETADO 2026-08-11 — PR #16 mergeado a main
+   (`0f0d44e`), branch borrada. Dos tandas con doble review ciega + fix
+   pass cada una (reports y reviews commiteados en `.superpowers/sdd/`).
+   Gate cerrado con evidencia: migrate deploy + status OK en staging Y
+   production (strings directos de consola de Neon) pre-smoke/pre-merge;
+   smoke de preview completo con CSP enforced y console limpia; smoke de
+   prod (/analisis) ídem; POST manual al csp-report de prod → 204 con log
+   en Runtime Logs; violations reales en prod: CERO (el eval de
+   /promotoria en Report-Only queda como ítem pre-T6). Suite 461/49.
+   Audit: 70 → 50 vulns (criticals accionables cerrados; restantes
+   triageados en este ledger). Detalle:
+   `docs/handoff/session-t2-close.md`.]** `next` 14.2.18 → 14.2.35 con protocolo supply-chain
    completo + verificación post-bump (grep de páginas RSC que consulten DB
    sin `requireAuth` propio — determina el blast radius real del CVE de
    middleware; re-run de `pnpm audit` registrando los highs restantes).
@@ -783,6 +794,76 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       `tests/api/signup.test.ts` caso 429) — si la frontera de 15min cae
       entre seed y llamada, el test falla (~≪0.1%); el assert está blindado
       window-agnostic, el seed no. Registrar por si aparece en CI.
+
+## T3 — minors de la doble review (no bloquean; registrados 2026-08-11)
+
+> Hallazgos MINOR de los carriles spec (S-*) y quality (Q-*) de la tanda
+> única de T3 (chatbot). Cero MAJOR: el diff fue al filtro externo SIN fix
+> pass. Detalle completo con escenarios en
+> `.superpowers/sdd/t3-review-spec.md` y `t3-review-quality.md`.
+
+- [ ] (S-1 spec) **Botón "Reintentar" oculto solo en el caso RATE_LIMITED**
+      (`components/analisis/chat-panel.tsx:160-168`) — micro-decisión de UI
+      más allá de la letra de §4.4 del brief, coherente con la intención
+      (retry contra cuota diaria re-falla seguro). Desviación declarada por
+      el implementer, aceptada por el carril spec.
+- [ ] (Q-1 quality) **El panel no maneja el 400 `MESSAGE_TOO_LONG` nuevo**:
+      un usuario legítimo que pega >8000 chars cae en copy genérico +
+      "Reintentar" que re-falla determinísticamente
+      (`chat-panel.tsx:162-179`; el 400 nace en
+      `app/api/ai/chat/route.ts:242-248`). El mecanismo de detección ya
+      existe (`isRateLimitError` parsea el body); generalizarlo a un
+      `errorCodeOf(error)` (~5 líneas) cuando se vuelva a tocar el panel.
+      Destino: próximo touch de chat-panel.tsx (T4 error boundaries o T5
+      copy, lo que llegue primero) — decisión de Michael vía filtro,
+      2026-08-11.
+- [ ] (Q-2 quality) **Copy de reset de cuota invertido tras cruzar la
+      medianoche UTC**: `quotaResetLocalTime()` se recalcula por render
+      (`chat-panel.tsx:49-58,169`) — con el 429 montado, al cruzar la
+      frontera el copy salta a +24h justo cuando la cuota ACABA de
+      resetearse. Deliberado según el implementer (reporte §8.3) pero
+      infiel; candidato: capturar la hora al momento del error.
+      Destino: próximo touch de chat-panel.tsx (T4 error boundaries o T5
+      copy, lo que llegue primero) — decisión de Michael vía filtro,
+      2026-08-11.
+- [ ] (Q-3 quality) **a11y: el announcer `aria-live` nunca comunica el copy
+      de cuota** (`chat-panel.tsx:184-192`) — screen reader solo oye el
+      genérico "Ocurrió un error", sin causa ni hora de reset. Ramificar
+      con `isRateLimitError`, simétrico al render visual.
+      Destino: próximo touch de chat-panel.tsx (T4 error boundaries o T5
+      copy, lo que llegue primero) — decisión de Michael vía filtro,
+      2026-08-11.
+- [ ] (Q-4 quality) **La ruta del chat sin pre-check de `Content-Length`**
+      que csp-report SÍ estableció en el mismo diff
+      (`app/api/ai/chat/route.ts:212-217` vs `csp-report/route.ts:40-43`):
+      un body basura de hasta ~4.5MB (cap de plataforma) paga `req.json()`
+      completo antes de los caps, y los mensajes descartados por el trim
+      nunca se miden. Emparenta con el ítem de Content-Length de
+      upload/import (T2 Tanda B, arriba).
+- [ ] (Q-5 quality) **Mensaje del 429 en español vs convención inglesa** de
+      los `errorResponse` de la misma ruta (`route.ts:284-288`). Cero
+      impacto (el panel detecta por `code`); alinear en T5 junto con la
+      decisión de idioma de la familia de errores per-file de upload.
+- [ ] (Q-6 quality) **Propiedades heredadas del limiter T2 ahora expuestas
+      en endpoint SIN auth** (csp-report; no son defecto del diff de T3):
+      (a) cada POST anónimo = un write a Neon — el limiter acota el
+      LOGGING, no la carga de DB (flood distribuido = amplificación de
+      writes); (b) filas de `RateLimit` de IPs one-shot que nada borra —
+      AGRAVA los ítems ya listados "Sin TTL/sweep global" y "Sin cap de
+      longitud en `key`" (sección T2 Tanda B); (c) `x-forwarded-for`
+      spoofeable fuera de Vercel (en Vercel el header es confiable;
+      declarado por el implementer, reporte §8.1).
+- [ ] (Q-7 quality, tests) **Cap de 64KB sin test de frontera exacta** (el
+      de 8000 sí tiene su par 8000/8001;
+      `tests/ai/chat-route.test.ts:804-820` usa payload muy pasado):
+      una regresión `>`→`>=` o un cambio de unidad pasaría verde. Barato:
+      mensaje cuyo JSON serializado mida exactamente 65536 bytes.
+- [ ] (Q-8 quality, tests) **El test de byte-estabilidad del system prompt
+      es tripwire, no prueba** (`chat-route.test.ts:856-876`, dos requests
+      back-to-back): interpolación con granularidad diaria pasaría verde.
+      La garantía real es el const de módulo sin interpolación
+      (`route.ts:105-143`, verificado por lectura). Anotado el límite del
+      assert; reemplazar solo si se vuelve a tocar el archivo.
 
 ## Pendiente-por-archivo
 

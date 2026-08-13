@@ -28,6 +28,9 @@ model Client {
   name      String
   email     String?
   createdAt DateTime @default(now())
+  // Daily AI-chat quota (hardening T3): requests per fixed UTC-aligned 24h
+  // window. Per-client so future plans can raise it by writing this field.
+  chatDailyLimit Int @default(40)
 
   products          Product[]
   productMappings   ProductMapping[]

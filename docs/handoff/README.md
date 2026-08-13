@@ -75,3 +75,9 @@ Formato: archivo — qué cierra — commit/PR asociado.
   prod, H3 cerrado (top-up $20 al AI Gateway, chat verificado en ambos
   entornos). Próximo task: T2 SEGURIDAD — primer commit de
   `feat/hardening-t2`.
+- `session-t2-close.md` — CIERRE DE T2 (PR #16 mergeado, main @ 0f0d44e):
+  dos tandas con doble review ciega, gate completo con evidencia
+  (migraciones staging+production con strings directos de Neon, smoke
+  preview con CSP enforced y console limpia, csp-report de prod verificado
+  con POST manual → 204 + log, violations CERO), suite 461/49, audit
+  70→50. Próximo task: T3 CHATBOT — primer commit de `feat/hardening-t3`.

@@ -1,6 +1,13 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Mocked at the module level (same rationale as tests/ai/chat-route.test.ts):
+// the limiter's own semantics are covered by the T2 suite; here we assert the
+// route's contract with it — and mocking also keeps this suite off the real
+// db that lib/rate-limit imports.
+vi.mock('@/lib/rate-limit', () => ({ consumeRateLimit: vi.fn() }));
 
 import { POST } from '@/app/api/csp-report/route';
+import { consumeRateLimit } from '@/lib/rate-limit';
 
 function reportRequest(
   body: string,
@@ -23,6 +30,11 @@ const SAMPLE_REPORT = JSON.stringify({
 });
 
 describe('POST /api/csp-report', () => {
+  beforeEach(() => {
+    vi.mocked(consumeRateLimit).mockReset();
+    vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: true, count: 1 });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -68,5 +80,65 @@ describe('POST /api/csp-report', () => {
       reportRequest(SAMPLE_REPORT, { 'content-length': String(10 * 1024 * 1024) }),
     );
     expect(res.status).toBe(413);
+  });
+
+  // -------------------------------------------------------------------------
+  // Hardening T3 §4.7 — per-IP rate limit (60 / 15 min, silent drop)
+  // -------------------------------------------------------------------------
+
+  it('consumes with the pinned scope/limit/window, keyed by the first x-forwarded-for entry', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await POST(
+      reportRequest(SAMPLE_REPORT, { 'x-forwarded-for': '1.2.3.4, 5.6.7.8' }),
+    );
+    expect(res.status).toBe(204);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    expect(vi.mocked(consumeRateLimit)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(consumeRateLimit)).toHaveBeenCalledWith({
+      scope: 'csp-report:ip',
+      key: '1.2.3.4',
+      limit: 60,
+      windowMs: 900_000,
+    });
+  });
+
+  it("falls back to key 'unknown' when x-forwarded-for is absent", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await POST(reportRequest(SAMPLE_REPORT));
+
+    expect(vi.mocked(consumeRateLimit)).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'unknown' }),
+    );
+  });
+
+  it('over the limit → SILENT drop: same 204, console.warn never called', async () => {
+    vi.mocked(consumeRateLimit).mockResolvedValue({ allowed: false, count: 61 });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await POST(reportRequest(SAMPLE_REPORT));
+
+    // The status NEVER changes: no feedback about the threshold reaches the
+    // sender, and the report is simply not logged.
+    expect(res.status).toBe(204);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('a 413 body-cap reject never consumes the IP budget', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await POST(reportRequest('x'.repeat(33 * 1024)));
+    expect(res.status).toBe(413);
+    expect(vi.mocked(consumeRateLimit)).not.toHaveBeenCalled();
+  });
+
+  it('a Content-Length reject never consumes the IP budget either', async () => {
+    const res = await POST(
+      reportRequest(SAMPLE_REPORT, { 'content-length': String(10 * 1024 * 1024) }),
+    );
+    expect(res.status).toBe(413);
+    expect(vi.mocked(consumeRateLimit)).not.toHaveBeenCalled();
   });
 });
