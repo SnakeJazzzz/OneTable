@@ -79,7 +79,24 @@
    truncado de bcrypt). Cap de 10MB pre-parse en `data/upload` y
    `parametros/import`.
 
-3. **CHATBOT.** Rate limit por usuario con contador Postgres, límite leído
+3. **CHATBOT.** **[COMPLETADO 2026-08-13 — PR #17 mergeado a main
+   (`3ff2438`) + fix post-gate de caching §4.6 en PR #18 (`67d9d91`);
+   branches borradas. Tanda única con doble review ciega (cero MAJOR —
+   diff al filtro sin fix pass); el fix §4.6 con su propio ciclo
+   (diagnóstico empírico + re-review quality, APPROVE WITH MINORS).
+   Gate cerrado con evidencia: migrate deploy + status OK en staging
+   (2026-08-12 ~20:38 CDMX, ep-lingering-salad) Y production (pre-merge,
+   re-verificado ~21:45, ep-muddy-bar) con strings directos de consola
+   de Neon; smoke de calidad en preview (console sin violations CSP) con
+   LOS 4 GUIONES PASADOS (reorden: se negó a inventar cifra; comparación
+   mensual por SKU: parada honesta; framing "cadenas" nunca "cuentas de
+   la plataforma"; 429 con copy en tuteo y hora calculada client-side,
+   sin Reintentar; bonus: declaró truncación "50 de 1,387" y se negó a
+   totalizar sin agregación); caching write→read VERIFICADO EN
+   PRODUCCIÓN (2026-08-13, CSV de 17 requests con facturación exacta,
+   dos conversaciones con ciclo completo; ~85% de ahorro por request
+   cacheado, 52% en la sesión). Suite 479/49. Detalle:
+   `docs/handoff/session-t3-close.md`.]** Rate limit por usuario con contador Postgres, límite leído
    de config por cliente (default 40/día, preparado para planes futuros) —
    MISMO mecanismo que el rate limit de login, se construye una vez.
    `maxOutputTokens` ~2000. Cap ~8000 chars por mensaje. Modelo YA
@@ -299,6 +316,24 @@
       vendí este mes?") puede sorprender — el usuario puede esperar el mes
       calendario más reciente con data, no el más rico. Re-evaluar con uso
       real de VIKS. Pregunta de producto, NO bug.
+      **Nota adjunta (smoke prod 2026-08-13, misma familia de resolución
+      de período):** salto de período marzo→enero observado en prod tras
+      un upload.
+
+- [ ] (origen: smokes T3 2026-08-12/13, observación de PRODUCTO — familia
+      getDefaultPeriod, re-evaluar con uso real de VIKS) **Faltan tools de
+      agregación server-side por tienda/SKU y de comparación mensual por
+      SKU en el chatbot.** Hoy el modelo agrega EN CONTEXTO sobre filas
+      crudas de `getOneTableRows` — frágil por diseño. Evidencia
+      acumulada de los smokes: totales de "mejor tienda" divergentes
+      entre corridas (53u/$7,301.51 vs 69u/$8,773.50 para AGUILAS;
+      $5,325 vs ~$7,325 en corridas previas), veredictos de "peor
+      tienda" distintos entre corridas, y una suma con deriva de $0.01.
+      El prompt anti-invención de T3 hace que el bot declare la
+      truncación y se niegue a totalizar sin agregación (comportamiento
+      correcto), pero la capacidad falta. Candidato: tools de agregación
+      server-side + comparación mensual por SKU. Pregunta de producto,
+      NO bug.
 
 - [ ] (origen: decisión de Michael 2026-07-16, review externa del diff
       ESTRICTA de T3 B5 / O1 del carril spec) **Pasada de copy es-MX
@@ -336,6 +371,18 @@
       del system prompt ante preguntas de juicio. Candidato: endurecer el
       system prompt — recomendaciones cuantitativas solo derivadas
       aritméticamente de tool results, o negarse.
+      **Evidencia (b) adicional (brief T3 §1.13, smoke T2 2026-08-11):**
+      "descenso de 33%" para 52→34 unidades (real: 34.6%) — aritmética
+      imprecisa SOBRE tool results correctos; muestra que "solo derivado
+      de tools" no basta, la derivación debe ser correcta o declararse
+      aproximada. **Estado 2026-08-13: EN OBSERVACIÓN con uso real de
+      VIKS.** T3 endureció el system prompt (derivación aritmética
+      explícita o detenerse; nivel exacto de agregación; framing) y el
+      smoke de calidad PASÓ (2026-08-12/13: 4 guiones, 5 derivaciones
+      verificadas a mano exactas a un decimal). Pero hay deriva residual
+      post-fix observada (smoke prod 2026-08-13: "41.0%" para un cálculo
+      cuyo valor real es 40.8%) — el prompt REDUJO la deriva, no la
+      eliminó.
 
 - [ ] (mismo origen, menor) **Framing confuso: el modelo tituló cadenas
       como "cuentas de la plataforma"** antes de auto-corregirse. Sin leak
@@ -780,12 +827,14 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       `auth.ts` scope `login:email`) — un "email" de ~5KB excede el máximo de
       btree index row (~2.7KB) → el upsert lanza → fail-open silencioso del
       scope email para esas keys + ruido de logs (scope IP intacto).
-      Candidato: truncar/hashear keys largas antes del SQL.
+      Candidato: truncar/hashear keys largas antes del SQL. **Agravado por
+      csp-report público desde T3 (Q-6); destino T6.**
 - [ ] **Sin TTL/sweep global de filas stale** (`lib/rate-limit.ts`) — el
       cleanup lazy solo borra ventanas viejas del MISMO (scope,key); keys
       one-shot (p.ej. barrido distribuido de muchas IPs) dejan filas
       permanentes — crecimiento sin cota en Neon Free tier. Candidato:
-      sweep global periódico (cron o piggyback).
+      sweep global periódico (cron o piggyback). **Agravado por
+      csp-report público desde T3 (Q-6); destino T6.**
 - [ ] **429 de signup sin `Retry-After`** (`app/api/auth/signup/route.ts`)
       — el fin de ventana es computable; cosmético, mejora UX de clientes
       legítimos.
@@ -844,6 +893,12 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       los `errorResponse` de la misma ruta (`route.ts:284-288`). Cero
       impacto (el panel detecta por `code`); alinear en T5 junto con la
       decisión de idioma de la familia de errores per-file de upload.
+- [ ] (smoke T3, copy, 2026-08-12 → T5) **El copy del 429 en el panel
+      termina en punto doble** ("...6:00 p.m..") — el JSX cierra con "."
+      tras `{quotaResetLocalTime()}` (`chat-panel.tsx:168-169`) y
+      `toLocaleTimeString('es-MX')` ya devuelve la hora con "p.m."
+      (verificado 2026-08-13). Cosmético; a la pasada de copy de T5
+      (chat-panel.tsx).
 - [ ] (Q-6 quality) **Propiedades heredadas del limiter T2 ahora expuestas
       en endpoint SIN auth** (csp-report; no son defecto del diff de T3):
       (a) cada POST anónimo = un write a Neon — el limiter acota el
@@ -852,7 +907,10 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       AGRAVA los ítems ya listados "Sin TTL/sweep global" y "Sin cap de
       longitud en `key`" (sección T2 Tanda B); (c) `x-forwarded-for`
       spoofeable fuera de Vercel (en Vercel el header es confiable;
-      declarado por el implementer, reporte §8.1).
+      declarado por el implementer, reporte §8.1). **Destino (cierre T3,
+      2026-08-13): triage a más tardar en T6; candidato: sweep global
+      piggyback en el workflow de backup** (cron diario ya existente,
+      cero infra nueva).
 - [ ] (Q-7 quality, tests) **Cap de 64KB sin test de frontera exacta** (el
       de 8000 sí tiene su par 8000/8001;
       `tests/ai/chat-route.test.ts:804-820` usa payload muy pasado):
@@ -874,6 +932,26 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       el source de ai@6.0.168 (`dist/index.mjs:7129,7211`) — así que es
       regression-lock opcional, no gap real. Una línea cuando se vuelva
       a tocar el archivo.
+- [ ] (E2 del filtro, brief T3 §4.3; registrado al cierre 2026-08-13)
+      **Residual de ventana TOTAL: ~30×64KB ≈ 1.9MB por request** — los
+      caps de T3 acotan por mensaje (8000 chars user / 64KB cualquiera),
+      no la ventana completa; una ventana llena de mensajes al tope del
+      cap grueso pasa los caps. Un request así revienta el contexto del
+      modelo y falla en el gateway ANTES de facturar. Candidato futuro
+      si duele: cap de ventana TOTAL.
+- [ ] (observación §4.6, fix caching, 2026-08-13) **El
+      `gateway.caching: 'auto'` tiene umbral de TAMAÑO**: prompts de
+      ~3-3.8K tokens no se marcan para cache, ~12K sí (observado en los
+      CSVs de prod del 2026-08-13). Residual ACEPTADO por Michael:
+      requests cortos sin cachear a ~$0.002 c/u, acotado por el cap de
+      40/día. Trigger de revisión: si el costo del chat pesa a escala
+      Founders. **Además: el anclaje message-level
+      `anthropic.cacheControl` NO funciona desde el runtime de Vercel**
+      — 0/0 en prod con causa DESCONOCIDA (hipótesis de routing-fallback
+      y de artefacto de medición REFUTADAS con los CSVs; el mismo
+      anclaje SÍ cacheó desde un scratch externo, ver
+      `t3-caching-fix-scratch-evidence.md`). **NO reintroducirlo sin
+      evidencia nueva.**
 
 ## Pendiente-por-archivo
 

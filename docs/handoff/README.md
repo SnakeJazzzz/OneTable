@@ -81,3 +81,12 @@ Formato: archivo — qué cierra — commit/PR asociado.
   preview con CSP enforced y console limpia, csp-report de prod verificado
   con POST manual → 204 + log, violations CERO), suite 461/49, audit
   70→50. Próximo task: T3 CHATBOT — primer commit de `feat/hardening-t3`.
+- `session-t3-close.md` — CIERRE DE T3 (PR #17 mergeado, main @ 3ff2438;
+  fix post-gate de caching §4.6 en PR #18, main @ 67d9d91): tanda única
+  con doble review ciega (cero MAJOR), gate completo con evidencia
+  (migraciones staging+production con strings directos de Neon, smoke de
+  calidad con los 4 guiones anti-invención pasados y console limpia,
+  caching write→read verificado en producción con ~85% de ahorro por
+  request cacheado; causa del 0/0 del anclaje message-level viejo:
+  desconocida, hipótesis refutadas), suite 479/49. Próximo task: T4
+  ROBUSTEZ/OBSERVABILIDAD — primer commit de `feat/hardening-t4`.
