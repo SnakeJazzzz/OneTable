@@ -157,6 +157,16 @@ responde en preview y prod).
 
 ### T4 — ROBUSTEZ / OBSERVABILIDAD (CORTE punto 4)
 
+> **Estado: COMPLETADO 2026-08-15** — PR #19 mergeado a main (`9ef19a1`);
+> gate cerrado con evidencia (smoke (d) sobre el preview de la branch:
+> `error.tsx` con estilo de la app ante DB caída real, 500 JSON
+> `INTERNAL` + líneas de log estructurado verificadas EN VIVO en Runtime
+> Logs, 24 rutas ƒ en build, e2e completo post-restauración; CI re-valida
+> 510 tests / 53 archivos). `withRouteErrors` en 23/24 rutas (nextauth
+> excluida por evidencia empírica OQ-1) + `ServiceError` + guards de
+> body + boundaries + logs estructurados (prerequisito del agente de
+> triage: CUMPLIDO). Detalle: `docs/handoff/session-t4-close.md`.
+
 **[CC — código]**
 - Error boundaries (`error.tsx`, `global-error.tsx`, `not-found.tsx` con
   estilo de la app).
