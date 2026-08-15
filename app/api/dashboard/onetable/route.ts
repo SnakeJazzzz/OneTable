@@ -18,6 +18,7 @@
 
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { getThresholdCuts } from '@/lib/thresholds';
 import { getOneTableRows, getDefaultPeriod } from '@/core/kpis/queries';
 
@@ -28,7 +29,7 @@ function parsePeriodParam(raw: string | null, min: number, max: number): number 
   return n;
 }
 
-export async function GET(req: Request): Promise<Response> {
+async function handleGet(req: Request): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId, userId } = sessionOrError;
@@ -59,3 +60,5 @@ export async function GET(req: Request): Promise<Response> {
     rows,
   });
 }
+
+export const GET = withRouteErrors('dashboard/onetable', handleGet);

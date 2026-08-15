@@ -258,6 +258,12 @@ describe('DELETE /api/portales/mappings', () => {
     const unmapped = await db.unmappedProduct.findFirst({ where: { clientId, chain: 'SORIANA', portalString: 'MANUAL-ONLY' } });
     expect(unmapped).toBeNull();
   });
+
+  // T4 E1 (non-ServiceError rethrow → wrapper 500) lives in its OWN file,
+  // tests/api/mappings-e1-rethrow.test.ts: forcing a generic throw here would
+  // need a spy on the shared PrismaClient proxy, and restoring such a spy
+  // corrupts `$transaction` for the rest of this file (verified empirically —
+  // `db.$transaction is not a function` on every later PATCH test).
 });
 
 describe('PATCH /api/portales/mappings', () => {

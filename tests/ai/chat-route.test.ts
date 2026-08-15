@@ -747,6 +747,30 @@ describe('POST /api/ai/chat — daily quota (T3)', () => {
     expect(vi.mocked(db.client.findUnique)).not.toHaveBeenCalled();
     expect(vi.mocked(consumeRateLimit)).not.toHaveBeenCalled();
   });
+
+  it('T4: the quota lookup throwing (DB down) → 500 INTERNAL standard shape via withRouteErrors (pre-T4: raw Next 500); model and limiter untouched', async () => {
+    vi.mocked(db.client.findUnique).mockRejectedValue(new Error('neon down'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const model = installModel(textStreamResult('nope'));
+
+    const res = await POST(makeRequest({ messages: [userMsg('1', 'hola')] }));
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.code).toBe('INTERNAL');
+    expect(vi.mocked(chatModel)).not.toHaveBeenCalled();
+    expect(model.doStreamCalls).toHaveLength(0);
+    expect(vi.mocked(consumeRateLimit)).not.toHaveBeenCalled();
+
+    // ONE structured JSON line from the wrapper (source:'api', route, method).
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    const line = JSON.parse(errSpy.mock.calls[0][0] as string);
+    expect(line.source).toBe('api');
+    expect(line.route).toBe('ai/chat');
+    expect(line.method).toBe('POST');
+    expect(line.name).toBe('Error');
+    errSpy.mockRestore();
+  });
 });
 
 // ---------------------------------------------------------------------------

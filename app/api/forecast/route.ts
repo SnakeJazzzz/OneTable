@@ -14,11 +14,12 @@
 
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { getForecastOverview } from '@/core/forecast';
 
 // The request is accepted but deliberately unread: no query param can steer
 // tenant identity (test group asserts injected ?clientId=... is inert).
-export async function GET(_req: Request): Promise<Response> {
+async function handleGet(_req: Request): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId } = sessionOrError;
@@ -26,3 +27,5 @@ export async function GET(_req: Request): Promise<Response> {
   const rows = await getForecastOverview(db, { clientId });
   return Response.json({ rows });
 }
+
+export const GET = withRouteErrors('forecast', handleGet);

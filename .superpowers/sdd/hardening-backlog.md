@@ -79,7 +79,24 @@
    truncado de bcrypt). Cap de 10MB pre-parse en `data/upload` y
    `parametros/import`.
 
-3. **CHATBOT.** Rate limit por usuario con contador Postgres, límite leído
+3. **CHATBOT.** **[COMPLETADO 2026-08-13 — PR #17 mergeado a main
+   (`3ff2438`) + fix post-gate de caching §4.6 en PR #18 (`67d9d91`);
+   branches borradas. Tanda única con doble review ciega (cero MAJOR —
+   diff al filtro sin fix pass); el fix §4.6 con su propio ciclo
+   (diagnóstico empírico + re-review quality, APPROVE WITH MINORS).
+   Gate cerrado con evidencia: migrate deploy + status OK en staging
+   (2026-08-12 ~20:38 CDMX, ep-lingering-salad) Y production (pre-merge,
+   re-verificado ~21:45, ep-muddy-bar) con strings directos de consola
+   de Neon; smoke de calidad en preview (console sin violations CSP) con
+   LOS 4 GUIONES PASADOS (reorden: se negó a inventar cifra; comparación
+   mensual por SKU: parada honesta; framing "cadenas" nunca "cuentas de
+   la plataforma"; 429 con copy en tuteo y hora calculada client-side,
+   sin Reintentar; bonus: declaró truncación "50 de 1,387" y se negó a
+   totalizar sin agregación); caching write→read VERIFICADO EN
+   PRODUCCIÓN (2026-08-13, CSV de 17 requests con facturación exacta,
+   dos conversaciones con ciclo completo; ~85% de ahorro por request
+   cacheado, 52% en la sesión). Suite 479/49. Detalle:
+   `docs/handoff/session-t3-close.md`.]** Rate limit por usuario con contador Postgres, límite leído
    de config por cliente (default 40/día, preparado para planes futuros) —
    MISMO mecanismo que el rate limit de login, se construye una vez.
    `maxOutputTokens` ~2000. Cap ~8000 chars por mensaje. Modelo YA
@@ -299,6 +316,24 @@
       vendí este mes?") puede sorprender — el usuario puede esperar el mes
       calendario más reciente con data, no el más rico. Re-evaluar con uso
       real de VIKS. Pregunta de producto, NO bug.
+      **Nota adjunta (smoke prod 2026-08-13, misma familia de resolución
+      de período):** salto de período marzo→enero observado en prod tras
+      un upload.
+
+- [ ] (origen: smokes T3 2026-08-12/13, observación de PRODUCTO — familia
+      getDefaultPeriod, re-evaluar con uso real de VIKS) **Faltan tools de
+      agregación server-side por tienda/SKU y de comparación mensual por
+      SKU en el chatbot.** Hoy el modelo agrega EN CONTEXTO sobre filas
+      crudas de `getOneTableRows` — frágil por diseño. Evidencia
+      acumulada de los smokes: totales de "mejor tienda" divergentes
+      entre corridas (53u/$7,301.51 vs 69u/$8,773.50 para AGUILAS;
+      $5,325 vs ~$7,325 en corridas previas), veredictos de "peor
+      tienda" distintos entre corridas, y una suma con deriva de $0.01.
+      El prompt anti-invención de T3 hace que el bot declare la
+      truncación y se niegue a totalizar sin agregación (comportamiento
+      correcto), pero la capacidad falta. Candidato: tools de agregación
+      server-side + comparación mensual por SKU. Pregunta de producto,
+      NO bug.
 
 - [ ] (origen: decisión de Michael 2026-07-16, review externa del diff
       ESTRICTA de T3 B5 / O1 del carril spec) **Pasada de copy es-MX
@@ -336,6 +371,18 @@
       del system prompt ante preguntas de juicio. Candidato: endurecer el
       system prompt — recomendaciones cuantitativas solo derivadas
       aritméticamente de tool results, o negarse.
+      **Evidencia (b) adicional (brief T3 §1.13, smoke T2 2026-08-11):**
+      "descenso de 33%" para 52→34 unidades (real: 34.6%) — aritmética
+      imprecisa SOBRE tool results correctos; muestra que "solo derivado
+      de tools" no basta, la derivación debe ser correcta o declararse
+      aproximada. **Estado 2026-08-13: EN OBSERVACIÓN con uso real de
+      VIKS.** T3 endureció el system prompt (derivación aritmética
+      explícita o detenerse; nivel exacto de agregación; framing) y el
+      smoke de calidad PASÓ (2026-08-12/13: 4 guiones, 5 derivaciones
+      verificadas a mano exactas a un decimal). Pero hay deriva residual
+      post-fix observada (smoke prod 2026-08-13: "41.0%" para un cálculo
+      cuyo valor real es 40.8%) — el prompt REDUJO la deriva, no la
+      eliminó.
 
 - [ ] (mismo origen, menor) **Framing confuso: el modelo tituló cadenas
       como "cuentas de la plataforma"** antes de auto-corregirse. Sin leak
@@ -780,12 +827,14 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       `auth.ts` scope `login:email`) — un "email" de ~5KB excede el máximo de
       btree index row (~2.7KB) → el upsert lanza → fail-open silencioso del
       scope email para esas keys + ruido de logs (scope IP intacto).
-      Candidato: truncar/hashear keys largas antes del SQL.
+      Candidato: truncar/hashear keys largas antes del SQL. **Agravado por
+      csp-report público desde T3 (Q-6); destino T6.**
 - [ ] **Sin TTL/sweep global de filas stale** (`lib/rate-limit.ts`) — el
       cleanup lazy solo borra ventanas viejas del MISMO (scope,key); keys
       one-shot (p.ej. barrido distribuido de muchas IPs) dejan filas
       permanentes — crecimiento sin cota en Neon Free tier. Candidato:
-      sweep global periódico (cron o piggyback).
+      sweep global periódico (cron o piggyback). **Agravado por
+      csp-report público desde T3 (Q-6); destino T6.**
 - [ ] **429 de signup sin `Retry-After`** (`app/api/auth/signup/route.ts`)
       — el fin de ventana es computable; cosmético, mejora UX de clientes
       legítimos.
@@ -844,6 +893,12 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       los `errorResponse` de la misma ruta (`route.ts:284-288`). Cero
       impacto (el panel detecta por `code`); alinear en T5 junto con la
       decisión de idioma de la familia de errores per-file de upload.
+- [ ] (smoke T3, copy, 2026-08-12 → T5) **El copy del 429 en el panel
+      termina en punto doble** ("...6:00 p.m..") — el JSX cierra con "."
+      tras `{quotaResetLocalTime()}` (`chat-panel.tsx:168-169`) y
+      `toLocaleTimeString('es-MX')` ya devuelve la hora con "p.m."
+      (verificado 2026-08-13). Cosmético; a la pasada de copy de T5
+      (chat-panel.tsx).
 - [ ] (Q-6 quality) **Propiedades heredadas del limiter T2 ahora expuestas
       en endpoint SIN auth** (csp-report; no son defecto del diff de T3):
       (a) cada POST anónimo = un write a Neon — el limiter acota el
@@ -852,7 +907,10 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       AGRAVA los ítems ya listados "Sin TTL/sweep global" y "Sin cap de
       longitud en `key`" (sección T2 Tanda B); (c) `x-forwarded-for`
       spoofeable fuera de Vercel (en Vercel el header es confiable;
-      declarado por el implementer, reporte §8.1).
+      declarado por el implementer, reporte §8.1). **Destino (cierre T3,
+      2026-08-13): triage a más tardar en T6; candidato: sweep global
+      piggyback en el workflow de backup** (cron diario ya existente,
+      cero infra nueva).
 - [ ] (Q-7 quality, tests) **Cap de 64KB sin test de frontera exacta** (el
       de 8000 sí tiene su par 8000/8001;
       `tests/ai/chat-route.test.ts:804-820` usa payload muy pasado):
@@ -874,6 +932,116 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       el source de ai@6.0.168 (`dist/index.mjs:7129,7211`) — así que es
       regression-lock opcional, no gap real. Una línea cuando se vuelva
       a tocar el archivo.
+- [ ] (E2 del filtro, brief T3 §4.3; registrado al cierre 2026-08-13)
+      **Residual de ventana TOTAL: ~30×64KB ≈ 1.9MB por request** — los
+      caps de T3 acotan por mensaje (8000 chars user / 64KB cualquiera),
+      no la ventana completa; una ventana llena de mensajes al tope del
+      cap grueso pasa los caps. Un request así revienta el contexto del
+      modelo y falla en el gateway ANTES de facturar. Candidato futuro
+      si duele: cap de ventana TOTAL.
+- [ ] (observación §4.6, fix caching, 2026-08-13) **El
+      `gateway.caching: 'auto'` tiene umbral de TAMAÑO**: prompts de
+      ~3-3.8K tokens no se marcan para cache, ~12K sí (observado en los
+      CSVs de prod del 2026-08-13). Residual ACEPTADO por Michael:
+      requests cortos sin cachear a ~$0.002 c/u, acotado por el cap de
+      40/día. Trigger de revisión: si el costo del chat pesa a escala
+      Founders. **Además: el anclaje message-level
+      `anthropic.cacheControl` NO funciona desde el runtime de Vercel**
+      — 0/0 en prod con causa DESCONOCIDA (hipótesis de routing-fallback
+      y de artefacto de medición REFUTADAS con los CSVs; el mismo
+      anclaje SÍ cacheó desde un scratch externo, ver
+      `t3-caching-fix-scratch-evidence.md`). **NO reintroducirlo sin
+      evidencia nueva.**
+
+## T4 — minors de la doble review (no bloquean; registrados 2026-08-14)
+
+> Hallazgos MINOR de los carriles spec (S-*) y quality (Q-*) de la tanda
+> única de T4 (robustez/observabilidad). Cero MAJOR: el diff fue al filtro
+> externo SIN fix pass. Detalle completo con escenarios en
+> `.superpowers/sdd/t4-review-spec.md` y `t4-review-quality.md`.
+
+- [x] (S-1 spec) **Drift del brief §1.11 sobre los tests de mappings** —
+      el brief afirmaba que `tests/api/portales-mappings.test.ts` mockeaba
+      los throws del servicio con substrings a migrar; en realidad es un
+      test de INTEGRACIÓN (induce los throws con filas CONFLICTED reales y
+      el servicio real, que ahora lanza `ServiceError` naturalmente): no
+      había mocks que migrar y los asserts 409/404 quedaron válidos por
+      construcción. CORREGIDO en el reporte (`t4-report.md` §"Drift
+      brief→realidad"); el brief commiteado queda FROZEN.
+- [x] (S-2 spec, ACEPTADA por Michael en el gate) **Re-throw del sentinel
+      `DYNAMIC_SERVER_USAGE` en el wrapper** (`lib/route-errors.ts`) —
+      desviación esencial fuera de la letra de E4: sin él, la optimización
+      estática del build captura el `DynamicServerError` de `auth()` y
+      hornea rutas GET estáticas con 500 fijo + líneas `source:'api'`
+      espurias (7+ por build; con el fix: 0, rutas siguen ƒ). Implementada,
+      comentada y testeada; el match por digest replica 1:1 el
+      `isDynamicServerError` interno de next 14.2.35 (verificado por el
+      carril quality en node_modules). NEXT_REDIRECT/NEXT_NOT_FOUND siguen
+      solo documentados (cero usos en app/api — E4).
+- [x] (S-3 spec, ACEPTADA) **`omitMessage` omite también `stack`** —
+      excede la letra de OQ-2 pero cumple su intención: los stacks de V8
+      embeben el message en la primera línea; omitir uno sin el otro
+      anularía la regla. Documentado en el helper y testeado.
+- [x] (S-4 spec, ACEPTADA) **Catch P2003 solo en el `upsert` de
+      price-overrides PUT, no en el `deleteMany`** — narrowing correcto:
+      borrar filas de override no puede violar la FK de `productId` (peor
+      caso: 0 filas borradas). Comment en el código.
+- [ ] (Q-1 quality) **Race de doble-DELETE/PATCH de mappings: P2025 pasó
+      de 404 accidental a 500 INTERNAL + log** — dos DELETE del mismo mapeo
+      en paralelo (doble click): ambos pasan el `findFirst`, T1 borra, el
+      `delete` de T2 lanza P2025 ("...required but not found"), que el
+      substring-match pre-T4 capturaba → 404; post-T4 no es `ServiceError`
+      → rethrow → 500 (`core/normalizer/resolve.ts:272,360`; catches en
+      `app/api/portales/mappings/route.ts:88-96,134-146`). Ventana angosta,
+      estado final de datos correcto. Fix barato: mapear
+      `PrismaClientKnownRequestError` + P2025 → 404 en esos dos catch.
+      Destino: próximo touch de mappings/route.ts o triage T6.
+- [ ] (Q-2 quality) **`reset()` de `app/error.tsx` sin `router.refresh()`**
+      (`app/error.tsx:38`) — el re-render de un boundary no re-fetchea
+      Server Components: tras un throw del dashboard layout (DB caída, el
+      caso dominante declarado), "Intentar de nuevo" probablemente no
+      recupera aunque la DB haya vuelto; el patrón documentado de Next es
+      `startTransition(() => { router.refresh(); reset(); })`. NOTA del
+      filtro: el smoke (d) no puede validar ni refutar esto — las env vars
+      se hornean por deployment (restaurar `DATABASE_URL` implica redeploy,
+      que resetea todo). Destino: próximo touch de app/error.tsx.
+- [ ] (Q-3 quality) **`omitMessage` inalcanzable vía `withRouteErrors`**
+      (`lib/route-errors.ts:51-58`) — el wrapper no pasa ctx por ruta, así
+      que la regla que el doc promete para rutas con contenido de usuario
+      no tiene ningún call site de producción que pueda invocarla. Fix:
+      tercer parámetro opcional de `withRouteErrors` o borrar la promesa
+      del doc. Destino: próximo touch de lib/route-errors.ts.
+- [ ] (Q-4 quality) **`logRouteError` puede lanzar con throws exóticos**
+      (`lib/route-errors.ts:92`) — `String(err)` sobre un objeto sin
+      `toString` (p.ej. `Object.create(null)`) lanza DENTRO del último
+      catch → el wrapper rechaza → 500 crudo sin log. Ningún throw site
+      actual lo produce; un try/catch de una línea alrededor del stringify
+      hace la red incondicional. Destino: próximo touch de
+      lib/route-errors.ts.
+- [ ] (Q-5 quality) **Dos códigos públicos para el mismo semántico:**
+      `INTERNAL` (wrapper, `lib/route-errors.ts:137`) vs `INTERNAL_ERROR`
+      (catches internos pre-existentes de signup `route.ts:92`, data/reset,
+      skus). Hoy ningún client branchea sobre ninguno de los dos. DECIDIR
+      ANTES de construir el agente de triage post-bloque — agruparía una
+      misma condición en dos buckets.
+- [ ] (Q-6 quality) **Branch `Array.isArray` del guard de body sin test**
+      (`tests/api/body-guards.test.ts:39-42` — CASES solo cubre `null` y
+      string): borrar ese branch del guard dejaría la suite verde. Agregar
+      `['array body', '[]']` a CASES en el próximo touch del archivo.
+- [ ] (Q-7 quality) **`lib/route-errors` importa `errorResponse` desde
+      `lib/auth-helpers`** (`lib/route-errors.ts:44` →
+      `lib/auth-helpers.ts:15` → `@/auth` → next-auth) — arrastra next-auth
+      al grafo de imports de health y csp-report (cold start + peaje de
+      `vi.mock('@/auth')` nuevo en `tests/api/health.test.ts:8` y
+      `tests/api/csp-report.test.ts:12`). `errorResponse` es pura;
+      candidato: moverla a un leaf module (`lib/api-errors.ts`) con
+      re-export desde auth-helpers. Destino: hardening .2.
+- [ ] (observación del implementer, footnote 4 de la tabla E6 del reporte)
+      **signup y skus también aceptan body JSON no-objeto** — hoy caen a
+      500 JSON vía sus catch internos (no crudo, gracias al wrapper +
+      catches pre-existentes); extender el guard R1 ahí (400 fino
+      `INVALID_BODY`) = decisión futura, candidato al próximo touch de
+      esas rutas.
 
 ## Pendiente-por-archivo
 

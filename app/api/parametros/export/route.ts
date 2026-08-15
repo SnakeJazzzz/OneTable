@@ -14,10 +14,11 @@
 import * as XLSX from 'xlsx';
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 
 const HEADER = ['Código', 'Producto', 'PrecioCompra', 'PrecioVenta'] as const;
 
-export async function GET(): Promise<Response> {
+async function handleGet(): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId } = sessionOrError;
@@ -56,3 +57,5 @@ export async function GET(): Promise<Response> {
     },
   });
 }
+
+export const GET = withRouteErrors('parametros/export', handleGet);

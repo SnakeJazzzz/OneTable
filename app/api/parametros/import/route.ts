@@ -14,10 +14,11 @@
 
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors, logRouteError } from '@/lib/route-errors';
 import { importParameters } from '@/core/parameters/import';
 import { MAX_UPLOAD_FILE_BYTES } from '@/lib/upload-limits';
 
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId } = sessionOrError;
@@ -60,7 +61,9 @@ export async function POST(req: Request): Promise<Response> {
   } catch (err) {
     // XLSX.read throws on a corrupt / non-xlsx buffer. Surface a 400 with a
     // clear message instead of leaking a 500 + stack trace.
-    console.error('[parametros/import] importer error:', err);
+    // Structured log (T4 OQ-4): direct call from inside the handler, so
+    // clientId IS available here (unlike the wrapper's outer catch).
+    logRouteError('parametros/import', err, { method: 'POST', clientId });
     return errorResponse(
       'INVALID_XLSX',
       'No se pudo leer el archivo. Verificá que sea un .xlsx válido.',
@@ -68,3 +71,5 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 }
+
+export const POST = withRouteErrors('parametros/import', handlePost);

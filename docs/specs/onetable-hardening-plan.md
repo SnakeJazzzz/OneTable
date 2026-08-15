@@ -130,6 +130,17 @@ responde en preview y prod).
 
 ### T3 — CHATBOT (CORTE punto 3)
 
+> **Estado: COMPLETADO 2026-08-13** — PR #17 mergeado a main (`3ff2438`) +
+> fix post-gate de caching §4.6 en PR #18 (`67d9d91`); gate cerrado con
+> evidencia (migraciones aplicadas a staging y production con strings
+> directos de Neon; smoke de calidad en preview con los 4 guiones
+> anti-invención pasados y console sin violations CSP; caching
+> write→read verificado en producción — ~85% de ahorro por request
+> cacheado, 52% en la sesión medida; la causa del 0/0 del anclaje
+> message-level original quedó DESCONOCIDA tras refutar dos hipótesis —
+> no reintroducirlo sin evidencia nueva). Suite 479 tests / 49 archivos.
+> Detalle: `docs/handoff/session-t3-close.md`.
+
 **[CC — código]**
 - Reusar el rate limiter con límite por cliente (default 40/día).
 - `maxOutputTokens` ~2000; cap ~8k chars por mensaje;

@@ -65,6 +65,7 @@ import {
 
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { consumeRateLimit } from '@/lib/rate-limit';
 import { getThresholdCuts } from '@/lib/thresholds';
 import { chatModel } from '@/lib/ai/model';
@@ -188,7 +189,7 @@ function exceedsSizeCaps(trimmed: unknown[]): boolean {
   return false;
 }
 
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { userId, clientId } = sessionOrError;
@@ -242,9 +243,9 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // Per-client daily limit, read from the Client row (select minimal). If the
-  // read throws (DB down), it propagates to Next's default 500 — accepted
-  // behavior, no new handling here (T3 brief §4.2/E4; T4's route-error sweep
-  // subsumes it).
+  // read throws (DB down), it propagates to withRouteErrors (T4): 500 JSON
+  // `{ error: { code: 'INTERNAL' } }` + one structured log line — no longer
+  // Next's raw default 500 (the debt T3 documented here is closed).
   const client = await db.client.findUnique({
     where: { id: clientId },
     select: { chatDailyLimit: true },
@@ -316,3 +317,5 @@ export async function POST(req: Request): Promise<Response> {
   // message/stack into the stream (same principle as the tool layer).
   return result.toUIMessageStreamResponse({ onError: () => 'CHAT_ERROR' });
 }
+
+export const POST = withRouteErrors('ai/chat', handlePost);

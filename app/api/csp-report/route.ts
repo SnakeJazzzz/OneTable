@@ -27,6 +27,7 @@
  */
 
 import { consumeRateLimit } from '@/lib/rate-limit';
+import { withRouteErrors } from '@/lib/route-errors';
 
 const MAX_BODY_BYTES = 32 * 1024; // 32KB — generous for a ~1KB report
 
@@ -36,7 +37,7 @@ const CSP_REPORT_IP_SCOPE = 'csp-report:ip';
 const CSP_REPORT_IP_LIMIT = 60;
 const CSP_REPORT_WINDOW_MS = 900_000; // 15 min — same window as auth
 
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   const contentLength = Number(req.headers.get('content-length') ?? '0');
   if (contentLength > MAX_BODY_BYTES) {
     return new Response(null, { status: 413 });
@@ -87,3 +88,9 @@ export async function POST(req: Request): Promise<Response> {
 
   return new Response(null, { status: 204 });
 }
+
+// T4 invariant 24/24: the lenient parse + fail-open limiter already keep this
+// route from throwing on any expected path — the wrapper is the outer net for
+// the unexpected only; the "204 always" contract is preserved by the internal
+// handling, not altered here.
+export const POST = withRouteErrors('csp-report', handlePost);

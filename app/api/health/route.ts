@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withRouteErrors } from '@/lib/route-errors';
 
 // Public health check (hardening T1), polled by the external uptime monitor.
 // Excluded from the middleware matcher so each ping skips the auth() wrapper.
@@ -11,7 +12,7 @@ export const dynamic = 'force-dynamic';
 // hanging the function until Prisma's own (much longer) connect timeout.
 const DB_CHECK_TIMEOUT_MS = 5_000;
 
-export async function GET(): Promise<NextResponse> {
+async function handleGet(): Promise<NextResponse> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
@@ -32,3 +33,9 @@ export async function GET(): Promise<NextResponse> {
     if (timer !== undefined) clearTimeout(timer);
   }
 }
+
+// T4 invariant 24/24: the internal try/catch + semantic 503 make the wrapper
+// dead code here — deliberately so. The route keeps its contract untouched
+// while the repo rule "every route exports wrapped handlers" holds without
+// grep exceptions.
+export const GET = withRouteErrors('health', handleGet);

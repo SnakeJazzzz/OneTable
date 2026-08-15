@@ -1,4 +1,11 @@
 import { describe, it, expect, afterAll, vi } from 'vitest';
+
+// Since T4 the route imports lib/route-errors → lib/auth-helpers → @/auth →
+// next-auth → 'next/server', unresolvable under vitest — mocked for the same
+// reason every tests/api/* file with an authed route mocks it. The route's
+// 200/503 contract is untouched (the wrapper is dead code in health).
+vi.mock('@/auth', () => ({ auth: vi.fn() }));
+
 import { GET } from '@/app/api/health/route';
 import { db } from '@/lib/db';
 

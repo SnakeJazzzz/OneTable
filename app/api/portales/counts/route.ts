@@ -1,9 +1,10 @@
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { parseChain } from '@/lib/portales/chains';
 
 // GET ?chain= → { unmappedCount, pendingReviewCount, conflictCount } for one card.
-export async function GET(req: Request): Promise<Response> {
+async function handleGet(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   const chain = parseChain(new URL(req.url).searchParams.get('chain'));
@@ -15,3 +16,5 @@ export async function GET(req: Request): Promise<Response> {
   ]);
   return Response.json({ unmappedCount, pendingReviewCount, conflictCount: conflictRows.length });
 }
+
+export const GET = withRouteErrors('portales/counts', handleGet);

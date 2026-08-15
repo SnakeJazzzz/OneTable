@@ -48,6 +48,7 @@ import type { Chain, FileType } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { getParser } from '@/core/parsers/registry';
 import { normalize } from '@/core/normalizer';
 import { buildMappingLookup } from '@/core/normalizer/lookup';
@@ -109,7 +110,7 @@ type PerFile = PerFileSuccess | PerFileFailure;
 // Handler
 // =====================================================================
 
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId, userId } = sessionOrError;
@@ -202,6 +203,8 @@ export async function POST(req: Request): Promise<Response> {
 
   return Response.json({ perFile });
 }
+
+export const POST = withRouteErrors('data/upload', handlePost);
 
 // =====================================================================
 // Per-file pipeline (kept small — easier to test/log mid-stream)

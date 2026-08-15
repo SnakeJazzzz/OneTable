@@ -1,4 +1,5 @@
 import { type Prisma, type Chain, type PrismaClient, type MappingStatus } from '@prisma/client';
+import { ServiceError } from './errors';
 
 // THE shared SelloutData backfill. Net-new in B4 (Fase 1 §4.4 blueprint; no
 // prior implementation existed). Both resolution flows — unmapped (D1) and
@@ -67,7 +68,7 @@ export async function requeueUnmappedProduct(
   args: { clientId: string; chain: Chain; portalString: string; firstSeenUploadId?: string },
 ): Promise<void> {
   if (!args.firstSeenUploadId) {
-    throw new Error('requeueUnmappedProduct requires firstSeenUploadId to re-anchor the portal string');
+    throw new ServiceError('MISSING_UPLOAD_ANCHOR', 'requeueUnmappedProduct requires firstSeenUploadId to re-anchor the portal string');
   }
   await tx.unmappedProduct.upsert({
     where: { clientId_chain_portalString: { clientId: args.clientId, chain: args.chain, portalString: args.portalString } },
@@ -190,7 +191,7 @@ export async function resolveConflict(
       // state. Abort before any mutation (rolls back the transaction).
       const winnerIds = candidates.filter((c) => c.productId === args.winnerProductId).map((c) => c.id);
       if (winnerIds.length === 0) {
-        throw new Error('resolveConflict "Es éste": winnerProductId no es un candidato del conflicto');
+        throw new ServiceError('INVALID_WINNER', 'resolveConflict "Es éste": winnerProductId no es un candidato del conflicto');
       }
       const losers = candidates.filter((c) => c.productId !== args.winnerProductId).map((c) => c.id);
       if (losers.length > 0) await tx.productMapping.deleteMany({ where: { id: { in: losers } } });
@@ -246,10 +247,10 @@ export async function deleteMapping(
       where: { clientId: args.clientId, chain: args.chain, portalString: args.portalString, productId: args.productId },
     });
     if (!existing) {
-      throw new Error('deleteMapping: mapping not found');
+      throw new ServiceError('MAPPING_NOT_FOUND', 'deleteMapping: mapping not found');
     }
     if (existing.status === 'CONFLICTED') {
-      throw new Error('deleteMapping: cannot delete a CONFLICTED mapping; resolve it via the conflict UI');
+      throw new ServiceError('MAPPING_CONFLICTED', 'deleteMapping: cannot delete a CONFLICTED mapping; resolve it via the conflict UI');
     }
 
     // 2. REVERT the backfill — inverse of backfillSelloutProductId, via the
@@ -326,18 +327,18 @@ export async function retargetMapping(
       where: { clientId: args.clientId, chain: args.chain, portalString: args.portalString, productId: args.oldProductId },
     });
     if (!existing) {
-      throw new Error('retargetMapping: mapping not found');
+      throw new ServiceError('MAPPING_NOT_FOUND', 'retargetMapping: mapping not found');
     }
 
     // 2. Guards, before any mutation.
     if (existing.status === 'CONFLICTED') {
-      throw new Error('retargetMapping: cannot retarget a CONFLICTED mapping; resolve it via the conflict UI');
+      throw new ServiceError('MAPPING_CONFLICTED', 'retargetMapping: cannot retarget a CONFLICTED mapping; resolve it via the conflict UI');
     }
     //    PLACEMENT: the no-op guard runs after the mapping findFirst (one DB
     //    check) and BEFORE the target check — deliberate error precedence:
     //    a missing mapping answers not-found (route → 404) first.
     if (args.newProductId === args.oldProductId) {
-      throw new Error('retargetMapping: newProductId equals oldProductId (no-op retarget is not allowed)');
+      throw new ServiceError('NOOP_RETARGET', 'retargetMapping: newProductId equals oldProductId (no-op retarget is not allowed)');
     }
     //    Fetching the full Product row (no `select`) is accepted here;
     //    `select: { id: true }` would suffice, but no logic changes in this
@@ -346,7 +347,7 @@ export async function retargetMapping(
       where: { id: args.newProductId, clientId: args.clientId },
     });
     if (!target) {
-      throw new Error('retargetMapping: newProductId does not exist or does not belong to this client');
+      throw new ServiceError('PRODUCT_NOT_FOUND', 'retargetMapping: newProductId does not exist or does not belong to this client');
     }
 
     // 3. REVERT the old attribution (scoped to THIS string — footgun guard).
