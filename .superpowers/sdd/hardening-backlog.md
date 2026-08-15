@@ -316,6 +316,17 @@
       TAMAÑO por mensaje — un mensaje de megabytes pasa entero al modelo.
       Evaluar cap de bytes/chars por mensaje o por ventana cuando se haga
       el hardening del chat (junto con el rate limiting del ítem anterior).
+- [ ] (origen: filtro externo T5 v2, 2026-08-15) **Verificar
+      alcanzabilidad real del cap per-file de 10MB de data/upload en
+      deployed**: el límite de payload de las serverless functions de
+      Vercel podría interceptar el request ANTES de que corra el cap de
+      la app (evidencia a capturar en el smoke de T5, paso 5b opcional).
+      Relacionado con el pre-check de Content-Length ya diferido a T6.
+      Destino: T6.
+- [ ] (origen: filtro externo T5 v2, 2026-08-15) **Deuda UX del 401
+      inline**: con sesión expirada, las secciones muestran el error como
+      message crudo en vez de redirigir a login. T5 solo traduce el
+      string. Destino: Fase 2.5 (rediseño con landing/cuentas).
 
 ## Infra de tests
 
