@@ -280,8 +280,11 @@
       throws de authorize internamente — 302 a /api/auth/error con body
       vacío, sin stack (verificación empírica del implementer, throw
       forzado con flujo real CSRF+callback; la observación de
-      b4-followups era pre-bump beta.25 y no se reprodujo). Sin wrap:
-      sería código inalcanzable.
+      b4-followups era con next-auth 5.0.0-beta.25 — versión vigente en
+      el lockfile desde `48d554d` (2026-05-18) hasta el bump a beta.32
+      en T2 (`0f0d44e`), verificada vía `git show <hash>:pnpm-lock.yaml`
+      — y no se reprodujo con beta.32). Sin wrap: sería código
+      inalcanzable.
 - [x] **DB de prod separada + backups.** Hoy dev y beta comparten la Neon
       dev DB. Database/branch de prod separada, backups automáticos.
       Fundamento actualizado 2026-07-20: por DISEÑO (dev/tests no deben
