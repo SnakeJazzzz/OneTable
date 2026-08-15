@@ -17,6 +17,7 @@
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors, logRouteError } from '@/lib/route-errors';
 import { parsePriceInput } from '@/lib/prices';
 
 type PatchSkuBody = {
@@ -40,7 +41,7 @@ function parsePatchPrice(present: boolean, raw: unknown): PriceResult {
   return parsed.kind === 'empty' ? { kind: 'clear' } : parsed;
 }
 
-export async function PATCH(
+async function handlePatch(
   req: Request,
   { params }: { params: { id: string } },
 ): Promise<Response> {
@@ -126,12 +127,14 @@ export async function PATCH(
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       return errorResponse('SKU_CODE_TAKEN', 'Ese código ya existe.', 409);
     }
-    console.error('[parametros/skus/[id]] unexpected error:', err);
+    // Structured log (T4 OQ-4): direct call from inside the handler, so
+    // clientId IS available here (unlike the wrapper's outer catch).
+    logRouteError('parametros/skus/[id]', err, { method: 'PATCH', clientId });
     return errorResponse('INTERNAL_ERROR', 'Error al actualizar el SKU.', 500);
   }
 }
 
-export async function DELETE(
+async function handleDelete(
   _req: Request,
   { params }: { params: { id: string } },
 ): Promise<Response> {
@@ -147,3 +150,6 @@ export async function DELETE(
   }
   return Response.json({ ok: true });
 }
+
+export const PATCH = withRouteErrors('parametros/skus/[id]', handlePatch);
+export const DELETE = withRouteErrors('parametros/skus/[id]', handleDelete);

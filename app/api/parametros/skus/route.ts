@@ -19,6 +19,7 @@
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors, logRouteError } from '@/lib/route-errors';
 import { makeCuid } from '@/core/ids';
 import { parsePriceInput } from '@/lib/prices';
 
@@ -41,7 +42,7 @@ function parseOptionalPrice(raw: unknown): PriceResult {
   return parsed.kind === 'empty' ? { kind: 'omit' } : parsed;
 }
 
-export async function GET(): Promise<Response> {
+async function handleGet(): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId } = sessionOrError;
@@ -69,7 +70,7 @@ export async function GET(): Promise<Response> {
   return Response.json({ skus });
 }
 
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId } = sessionOrError;
@@ -135,7 +136,12 @@ export async function POST(req: Request): Promise<Response> {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       return errorResponse('SKU_CODE_TAKEN', 'Ese código ya existe.', 409);
     }
-    console.error('[parametros/skus] unexpected error:', err);
+    // Structured log (T4 OQ-4): direct call from inside the handler, so
+    // clientId IS available here (unlike the wrapper's outer catch).
+    logRouteError('parametros/skus', err, { method: 'POST', clientId });
     return errorResponse('INTERNAL_ERROR', 'Error al crear el SKU.', 500);
   }
 }
+
+export const GET = withRouteErrors('parametros/skus', handleGet);
+export const POST = withRouteErrors('parametros/skus', handlePost);

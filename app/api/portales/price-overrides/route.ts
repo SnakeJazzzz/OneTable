@@ -25,14 +25,16 @@
  * Decimal serialization: prices are serialized to string (never float).
  */
 
+import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { parseChain } from '@/lib/portales/chains';
 import { parsePriceInput } from '@/lib/prices';
 
 // GET ?chain= → catalog + this chain's overrides in one payload (no N+1: the
 // override rows arrive through the Product relation, filtered by chain).
-export async function GET(req: Request): Promise<Response> {
+async function handleGet(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   const chain = parseChain(new URL(req.url).searchParams.get('chain'));
@@ -77,7 +79,7 @@ export async function GET(req: Request): Promise<Response> {
 
 // PUT { chain, productId, purchasePrice, salePrice } → declarative full-state
 // write for (productId, chain). See the header comment for the key contract.
-export async function PUT(req: Request): Promise<Response> {
+async function handlePut(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
 
@@ -138,10 +140,25 @@ export async function PUT(req: Request): Promise<Response> {
 
   const purchasePrice = purchase.kind === 'value' ? purchase.value : null;
   const salePrice = sale.kind === 'value' ? sale.value : null;
-  await db.productPriceOverride.upsert({
-    where: { productId_chain: { productId, chain } },
-    create: { productId, chain, purchasePrice, salePrice },
-    update: { purchasePrice, salePrice },
-  });
+  try {
+    await db.productPriceOverride.upsert({
+      where: { productId_chain: { productId, chain } },
+      create: { productId, chain, purchasePrice, salePrice },
+      update: { purchasePrice, salePrice },
+    });
+  } catch (err) {
+    // TOCTOU (T4 §4.4): the Product can be deleted between the ownership
+    // check above and this upsert — the create then violates the productId FK
+    // (P2003). Same contract as the ownership check that lost the race: 404.
+    // The sibling deleteMany branch needs no equivalent: deleting override
+    // rows can't violate the FK (worst case it deletes 0 rows).
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
+      return errorResponse('PRODUCT_NOT_FOUND', 'SKU not in your catalog', 404);
+    }
+    throw err; // anything else → withRouteErrors: 500 JSON + log
+  }
   return Response.json({ ok: true });
 }
+
+export const GET = withRouteErrors('portales/price-overrides', handleGet);
+export const PUT = withRouteErrors('portales/price-overrides', handlePut);

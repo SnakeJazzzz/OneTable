@@ -1,9 +1,10 @@
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { parseChain } from '@/lib/portales/chains';
 
 // GET → all credential rows for the client (username + flags only).
-export async function GET(_req: Request): Promise<Response> {
+async function handleGet(_req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   const credentials = await db.portalCredential.findMany({
@@ -14,7 +15,7 @@ export async function GET(_req: Request): Promise<Response> {
 }
 
 // PUT { chain, username } → upsert. NEVER reads or stores a password (§6.1).
-export async function PUT(req: Request): Promise<Response> {
+async function handlePut(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   let body: { chain?: string; username?: string };
@@ -22,6 +23,12 @@ export async function PUT(req: Request): Promise<Response> {
     body = await req.json();
   } catch {
     return errorResponse('INVALID_BODY', 'Body must be JSON', 400);
+  }
+  // req.json() resolves for ANY valid JSON (null, "str", 5, [] included);
+  // property access on a non-object would TypeError → raw 500. Same guard as
+  // price-overrides PUT (T4 §4.5).
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return errorResponse('INVALID_BODY', 'Body must be a JSON object', 400);
   }
   const chain = parseChain(body.chain ?? null);
   if (!chain) return errorResponse('INVALID_CHAIN', 'Unknown chain', 400);
@@ -39,3 +46,6 @@ export async function PUT(req: Request): Promise<Response> {
   });
   return Response.json({ ok: true });
 }
+
+export const GET = withRouteErrors('portales/credentials', handleGet);
+export const PUT = withRouteErrors('portales/credentials', handlePut);

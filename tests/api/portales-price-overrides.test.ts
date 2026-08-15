@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 
 // Mock @/auth BEFORE importing the route handler — otherwise auth.ts runs
 // for real and pulls a JWT cookie from a non-existent request.
@@ -9,6 +9,9 @@ vi.mock('@/auth', () => ({
 
 import { GET, PUT } from '@/app/api/portales/price-overrides/route';
 import { auth } from '@/auth';
+// The route's own PrismaClient instance (distinct from this file's `db`) —
+// spied on in the T4 §4.4 TOCTOU tests to force Prisma errors on the upsert.
+import { db as routeDb } from '@/lib/db';
 
 // Handler-level coverage for /api/portales/price-overrides (B5-2):
 // auth / validation / status codes / declarative-PUT write semantics.
@@ -364,5 +367,48 @@ describe('portales/price-overrides handler (GET + PUT)', () => {
     expect(row).not.toBeNull();
     expect(row?.purchasePrice?.toString()).toBe('9.25');
     expect(row?.salePrice).toBeNull();
+  });
+
+  // ---- T4 §4.4 — TOCTOU: Product deleted between ownership check and upsert ----
+
+  it('T4: P2003 on the upsert (product deleted mid-request) → 404 PRODUCT_NOT_FOUND', async () => {
+    mockSession();
+    const p2003 = new Prisma.PrismaClientKnownRequestError('FK constraint violated', {
+      code: 'P2003',
+      clientVersion: 'test',
+    });
+    vi.spyOn(routeDb.productPriceOverride, 'upsert').mockRejectedValueOnce(p2003);
+
+    const res = await PUT(
+      putReq({ chain: 'SORIANA', productId: pCreate, purchasePrice: '3.25', salePrice: null }),
+    );
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe('PRODUCT_NOT_FOUND');
+    vi.mocked(routeDb.productPriceOverride.upsert).mockRestore();
+  });
+
+  it('T4: any OTHER Prisma code on the upsert re-throws to the wrapper → 500 INTERNAL + structured log', async () => {
+    mockSession();
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const p2002 = new Prisma.PrismaClientKnownRequestError('unique violated', {
+      code: 'P2002',
+      clientVersion: 'test',
+    });
+    vi.spyOn(routeDb.productPriceOverride, 'upsert').mockRejectedValueOnce(p2002);
+
+    const res = await PUT(
+      putReq({ chain: 'SORIANA', productId: pCreate, purchasePrice: '3.25', salePrice: null }),
+    );
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe('INTERNAL');
+
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    const line = JSON.parse(errSpy.mock.calls[0][0] as string);
+    expect(line.source).toBe('api');
+    expect(line.route).toBe('portales/price-overrides');
+    expect(line.method).toBe('PUT');
+    expect(line.code).toBe('P2002');
+    errSpy.mockRestore();
+    vi.mocked(routeDb.productPriceOverride.upsert).mockRestore();
   });
 });

@@ -14,6 +14,7 @@
 
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { getThresholdCuts, validateThresholdCuts } from '@/lib/thresholds';
 import type { ThresholdCuts } from '@/core/alerts/classify';
 
@@ -32,7 +33,7 @@ function toNumber(raw: unknown): number {
   return NaN;
 }
 
-export async function GET(): Promise<Response> {
+async function handleGet(): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId } = sessionOrError;
@@ -41,7 +42,7 @@ export async function GET(): Promise<Response> {
   return Response.json({ cuts });
 }
 
-export async function PUT(req: Request): Promise<Response> {
+async function handlePut(req: Request): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId } = sessionOrError;
@@ -51,6 +52,13 @@ export async function PUT(req: Request): Promise<Response> {
     body = (await req.json()) as PutThresholdsBody;
   } catch {
     return errorResponse('INVALID_BODY', 'Body must be JSON', 400);
+  }
+
+  // req.json() resolves for ANY valid JSON (null, "str", 5, [] included);
+  // property access on a non-object would TypeError → raw 500. Same guard as
+  // price-overrides PUT (T4 §4.5).
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return errorResponse('INVALID_BODY', 'Body must be a JSON object', 400);
   }
 
   const cuts: ThresholdCuts = {
@@ -84,3 +92,6 @@ export async function PUT(req: Request): Promise<Response> {
 
   return Response.json({ cuts });
 }
+
+export const GET = withRouteErrors('parametros/thresholds', handleGet);
+export const PUT = withRouteErrors('parametros/thresholds', handlePut);

@@ -6,6 +6,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // db that lib/rate-limit imports.
 vi.mock('@/lib/rate-limit', () => ({ consumeRateLimit: vi.fn() }));
 
+// Since T4 the route imports lib/route-errors → lib/auth-helpers → @/auth →
+// next-auth → 'next/server', unresolvable under vitest — mocked for the same
+// reason every tests/api/* file with an authed route mocks it. The route's
+// contract (204 always, silent drops) is untouched.
+vi.mock('@/auth', () => ({ auth: vi.fn() }));
+
 import { POST } from '@/app/api/csp-report/route';
 import { consumeRateLimit } from '@/lib/rate-limit';
 

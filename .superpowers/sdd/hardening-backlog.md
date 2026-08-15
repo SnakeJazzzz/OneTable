@@ -953,6 +953,96 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       `t3-caching-fix-scratch-evidence.md`). **NO reintroducirlo sin
       evidencia nueva.**
 
+## T4 — minors de la doble review (no bloquean; registrados 2026-08-14)
+
+> Hallazgos MINOR de los carriles spec (S-*) y quality (Q-*) de la tanda
+> única de T4 (robustez/observabilidad). Cero MAJOR: el diff fue al filtro
+> externo SIN fix pass. Detalle completo con escenarios en
+> `.superpowers/sdd/t4-review-spec.md` y `t4-review-quality.md`.
+
+- [x] (S-1 spec) **Drift del brief §1.11 sobre los tests de mappings** —
+      el brief afirmaba que `tests/api/portales-mappings.test.ts` mockeaba
+      los throws del servicio con substrings a migrar; en realidad es un
+      test de INTEGRACIÓN (induce los throws con filas CONFLICTED reales y
+      el servicio real, que ahora lanza `ServiceError` naturalmente): no
+      había mocks que migrar y los asserts 409/404 quedaron válidos por
+      construcción. CORREGIDO en el reporte (`t4-report.md` §"Drift
+      brief→realidad"); el brief commiteado queda FROZEN.
+- [x] (S-2 spec, ACEPTADA por Michael en el gate) **Re-throw del sentinel
+      `DYNAMIC_SERVER_USAGE` en el wrapper** (`lib/route-errors.ts`) —
+      desviación esencial fuera de la letra de E4: sin él, la optimización
+      estática del build captura el `DynamicServerError` de `auth()` y
+      hornea rutas GET estáticas con 500 fijo + líneas `source:'api'`
+      espurias (7+ por build; con el fix: 0, rutas siguen ƒ). Implementada,
+      comentada y testeada; el match por digest replica 1:1 el
+      `isDynamicServerError` interno de next 14.2.35 (verificado por el
+      carril quality en node_modules). NEXT_REDIRECT/NEXT_NOT_FOUND siguen
+      solo documentados (cero usos en app/api — E4).
+- [x] (S-3 spec, ACEPTADA) **`omitMessage` omite también `stack`** —
+      excede la letra de OQ-2 pero cumple su intención: los stacks de V8
+      embeben el message en la primera línea; omitir uno sin el otro
+      anularía la regla. Documentado en el helper y testeado.
+- [x] (S-4 spec, ACEPTADA) **Catch P2003 solo en el `upsert` de
+      price-overrides PUT, no en el `deleteMany`** — narrowing correcto:
+      borrar filas de override no puede violar la FK de `productId` (peor
+      caso: 0 filas borradas). Comment en el código.
+- [ ] (Q-1 quality) **Race de doble-DELETE/PATCH de mappings: P2025 pasó
+      de 404 accidental a 500 INTERNAL + log** — dos DELETE del mismo mapeo
+      en paralelo (doble click): ambos pasan el `findFirst`, T1 borra, el
+      `delete` de T2 lanza P2025 ("...required but not found"), que el
+      substring-match pre-T4 capturaba → 404; post-T4 no es `ServiceError`
+      → rethrow → 500 (`core/normalizer/resolve.ts:272,360`; catches en
+      `app/api/portales/mappings/route.ts:88-96,134-146`). Ventana angosta,
+      estado final de datos correcto. Fix barato: mapear
+      `PrismaClientKnownRequestError` + P2025 → 404 en esos dos catch.
+      Destino: próximo touch de mappings/route.ts o triage T6.
+- [ ] (Q-2 quality) **`reset()` de `app/error.tsx` sin `router.refresh()`**
+      (`app/error.tsx:38`) — el re-render de un boundary no re-fetchea
+      Server Components: tras un throw del dashboard layout (DB caída, el
+      caso dominante declarado), "Intentar de nuevo" probablemente no
+      recupera aunque la DB haya vuelto; el patrón documentado de Next es
+      `startTransition(() => { router.refresh(); reset(); })`. NOTA del
+      filtro: el smoke (d) no puede validar ni refutar esto — las env vars
+      se hornean por deployment (restaurar `DATABASE_URL` implica redeploy,
+      que resetea todo). Destino: próximo touch de app/error.tsx.
+- [ ] (Q-3 quality) **`omitMessage` inalcanzable vía `withRouteErrors`**
+      (`lib/route-errors.ts:51-58`) — el wrapper no pasa ctx por ruta, así
+      que la regla que el doc promete para rutas con contenido de usuario
+      no tiene ningún call site de producción que pueda invocarla. Fix:
+      tercer parámetro opcional de `withRouteErrors` o borrar la promesa
+      del doc. Destino: próximo touch de lib/route-errors.ts.
+- [ ] (Q-4 quality) **`logRouteError` puede lanzar con throws exóticos**
+      (`lib/route-errors.ts:92`) — `String(err)` sobre un objeto sin
+      `toString` (p.ej. `Object.create(null)`) lanza DENTRO del último
+      catch → el wrapper rechaza → 500 crudo sin log. Ningún throw site
+      actual lo produce; un try/catch de una línea alrededor del stringify
+      hace la red incondicional. Destino: próximo touch de
+      lib/route-errors.ts.
+- [ ] (Q-5 quality) **Dos códigos públicos para el mismo semántico:**
+      `INTERNAL` (wrapper, `lib/route-errors.ts:137`) vs `INTERNAL_ERROR`
+      (catches internos pre-existentes de signup `route.ts:92`, data/reset,
+      skus). Hoy ningún client branchea sobre ninguno de los dos. DECIDIR
+      ANTES de construir el agente de triage post-bloque — agruparía una
+      misma condición en dos buckets.
+- [ ] (Q-6 quality) **Branch `Array.isArray` del guard de body sin test**
+      (`tests/api/body-guards.test.ts:39-42` — CASES solo cubre `null` y
+      string): borrar ese branch del guard dejaría la suite verde. Agregar
+      `['array body', '[]']` a CASES en el próximo touch del archivo.
+- [ ] (Q-7 quality) **`lib/route-errors` importa `errorResponse` desde
+      `lib/auth-helpers`** (`lib/route-errors.ts:44` →
+      `lib/auth-helpers.ts:15` → `@/auth` → next-auth) — arrastra next-auth
+      al grafo de imports de health y csp-report (cold start + peaje de
+      `vi.mock('@/auth')` nuevo en `tests/api/health.test.ts:8` y
+      `tests/api/csp-report.test.ts:12`). `errorResponse` es pura;
+      candidato: moverla a un leaf module (`lib/api-errors.ts`) con
+      re-export desde auth-helpers. Destino: hardening .2.
+- [ ] (observación del implementer, footnote 4 de la tabla E6 del reporte)
+      **signup y skus también aceptan body JSON no-objeto** — hoy caen a
+      500 JSON vía sus catch internos (no crudo, gracias al wrapper +
+      catches pre-existentes); extender el guard R1 ahí (400 fino
+      `INVALID_BODY`) = decisión futura, candidato al próximo touch de
+      esas rutas.
+
 ## Pendiente-por-archivo
 
 - [ ] **Code-skip §5.4 con archivo Amazon real** — ítem 5 del smoke de B4,

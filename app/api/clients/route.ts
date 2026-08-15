@@ -10,8 +10,9 @@
 
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 
-export async function GET(): Promise<Response> {
+async function handleGet(): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId, userId } = sessionOrError;
@@ -29,3 +30,5 @@ export async function GET(): Promise<Response> {
 
   return Response.json(client);
 }
+
+export const GET = withRouteErrors('clients', handleGet);

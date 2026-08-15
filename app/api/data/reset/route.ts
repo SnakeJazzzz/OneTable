@@ -26,8 +26,9 @@
 
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors, logRouteError } from '@/lib/route-errors';
 
-export async function POST(): Promise<Response> {
+async function handlePost(): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId, userId } = sessionOrError;
@@ -52,7 +53,11 @@ export async function POST(): Promise<Response> {
 
     return Response.json(result);
   } catch (err) {
-    console.error('[data-reset] failed:', err);
+    // Structured log (T4 OQ-4): direct call from inside the handler, so
+    // clientId IS available here (unlike the wrapper's outer catch).
+    logRouteError('data/reset', err, { method: 'POST', clientId });
     return errorResponse('INTERNAL_ERROR', 'Error al borrar datos', 500);
   }
 }
+
+export const POST = withRouteErrors('data/reset', handlePost);

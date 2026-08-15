@@ -1,11 +1,13 @@
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { assignMapping, deleteMapping, retargetMapping } from '@/core/normalizer/resolve';
+import { ServiceError } from '@/core/normalizer/errors';
 import { parseChain } from '@/lib/portales/chains';
 import type { MappingStatus } from '@prisma/client';
 
 // GET ?chain= → existing mappings (rows per SKU, §3.2.1).
-export async function GET(req: Request): Promise<Response> {
+async function handleGet(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   const chain = parseChain(new URL(req.url).searchParams.get('chain'));
@@ -19,7 +21,7 @@ export async function GET(req: Request): Promise<Response> {
 }
 
 // POST { chain, portalString, productId, status } → assignMapping (D1/D3).
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   let body: { chain?: string; portalString?: string; productId?: string; status?: string };
@@ -27,6 +29,12 @@ export async function POST(req: Request): Promise<Response> {
     body = await req.json();
   } catch {
     return errorResponse('INVALID_BODY', 'Body must be JSON', 400);
+  }
+  // req.json() resolves for ANY valid JSON (null, "str", 5, [] included);
+  // property access on a non-object would TypeError → raw 500. Same guard as
+  // price-overrides PUT (T4 §4.5).
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return errorResponse('INVALID_BODY', 'Body must be a JSON object', 400);
   }
   const chain = parseChain(body.chain ?? null);
   if (!chain) return errorResponse('INVALID_CHAIN', 'Unknown chain', 400);
@@ -47,7 +55,7 @@ export async function POST(req: Request): Promise<Response> {
 
 // DELETE { chain, portalString, productId } → deleteMapping (§11.5a revert).
 // Reverts the SelloutData backfill, removes the mapping, re-queues the string.
-export async function DELETE(req: Request): Promise<Response> {
+async function handleDelete(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   let body: { chain?: string; portalString?: string; productId?: string };
@@ -55,6 +63,9 @@ export async function DELETE(req: Request): Promise<Response> {
     body = await req.json();
   } catch {
     return errorResponse('INVALID_BODY', 'Body must be JSON', 400);
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return errorResponse('INVALID_BODY', 'Body must be a JSON object', 400);
   }
   const chain = parseChain(body.chain ?? null);
   if (!chain) return errorResponse('INVALID_CHAIN', 'Unknown chain', 400);
@@ -71,14 +82,18 @@ export async function DELETE(req: Request): Promise<Response> {
   try {
     await deleteMapping(db, { clientId: s.clientId, chain, portalString: body.portalString, productId: body.productId, firstSeenUploadId: up.id });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : '';
-    if (msg.includes('CONFLICTED')) {
-      return errorResponse('CONFLICTED', 'Ese mapeo está en conflicto; resolvelo desde la sección de conflictos.', 409);
+    // Typed branch (T4 §4.3/E1) — same status/copy as the pre-T4 substring
+    // matching. Codes without a mapping here (defense-in-depth family) fall
+    // through to the rethrow.
+    if (e instanceof ServiceError) {
+      switch (e.code) {
+        case 'MAPPING_CONFLICTED':
+          return errorResponse('CONFLICTED', 'Ese mapeo está en conflicto; resolvelo desde la sección de conflictos.', 409);
+        case 'MAPPING_NOT_FOUND':
+          return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
+      }
     }
-    if (msg.includes('not found')) {
-      return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
-    }
-    throw e;
+    throw e; // non-ServiceError (and unmapped codes) go up to withRouteErrors: 500 JSON + log
   }
   return Response.json({ ok: true });
 }
@@ -86,8 +101,8 @@ export async function DELETE(req: Request): Promise<Response> {
 // PATCH { chain, portalString, oldProductId, newProductId } → retargetMapping (§11.6a).
 // Re-points a mapped string to a different SKU in ONE step (revert + update-in-place
 // + backfill, all inside the service transaction). Thin route: every guard lives in
-// the service; here we only parse, auth-scope, and map throws → status codes.
-export async function PATCH(req: Request): Promise<Response> {
+// the service; here we only parse, auth-scope, and map ServiceError codes → status codes.
+async function handlePatch(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   let body: { chain?: string; portalString?: string; oldProductId?: string; newProductId?: string };
@@ -95,6 +110,9 @@ export async function PATCH(req: Request): Promise<Response> {
     body = await req.json();
   } catch {
     return errorResponse('INVALID_BODY', 'Body must be JSON', 400);
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return errorResponse('INVALID_BODY', 'Body must be a JSON object', 400);
   }
   const chain = parseChain(body.chain ?? null);
   if (!chain) return errorResponse('INVALID_CHAIN', 'Unknown chain', 400);
@@ -111,20 +129,26 @@ export async function PATCH(req: Request): Promise<Response> {
       newProductId: body.newProductId,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : '';
-    if (msg.includes('CONFLICTED')) {
-      return errorResponse('CONFLICTED', 'Ese mapeo está en conflicto; resolvelo desde la sección de conflictos.', 409);
+    // Typed branch (T4 §4.3/E1) — same status/copy as the pre-T4 substring
+    // matching.
+    if (e instanceof ServiceError) {
+      switch (e.code) {
+        case 'MAPPING_CONFLICTED':
+          return errorResponse('CONFLICTED', 'Ese mapeo está en conflicto; resolvelo desde la sección de conflictos.', 409);
+        case 'MAPPING_NOT_FOUND':
+          return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
+        case 'NOOP_RETARGET':
+          return errorResponse('NOOP_RETARGET', 'El SKU nuevo es igual al actual.', 409);
+        case 'PRODUCT_NOT_FOUND':
+          return errorResponse('PRODUCT_NOT_FOUND', 'Ese SKU no existe en tu catálogo.', 404);
+      }
     }
-    if (msg.includes('not found')) {
-      return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
-    }
-    if (msg.includes('equals oldProductId')) {
-      return errorResponse('NOOP_RETARGET', 'El SKU nuevo es igual al actual.', 409);
-    }
-    if (msg.includes('does not exist or does not belong')) {
-      return errorResponse('PRODUCT_NOT_FOUND', 'Ese SKU no existe en tu catálogo.', 404);
-    }
-    throw e;
+    throw e; // non-ServiceError (and unmapped codes) go up to withRouteErrors: 500 JSON + log
   }
   return Response.json({ ok: true });
 }
+
+export const GET = withRouteErrors('portales/mappings', handleGet);
+export const POST = withRouteErrors('portales/mappings', handlePost);
+export const DELETE = withRouteErrors('portales/mappings', handleDelete);
+export const PATCH = withRouteErrors('portales/mappings', handlePatch);

@@ -17,6 +17,7 @@ import { hash } from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors, logRouteError } from '@/lib/route-errors';
 import { consumeRateLimit, AUTH_IP_LIMIT, AUTH_WINDOW_MS } from '@/lib/rate-limit';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -41,7 +42,7 @@ type SignupBody = {
 // must not eat the login budget of an IP or vice versa.
 const SIGNUP_IP_SCOPE = 'signup:ip';
 
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   // Per-IP rate limit BEFORE any parsing/bcrypt work. Every POST consumes
   // one unit (unlike login, which only counts failures — creating accounts
   // in bulk is the abuse here, not guessing). DELIBERATE asymmetry with
@@ -140,7 +141,11 @@ export async function POST(req: Request): Promise<Response> {
       return errorResponse('EMAIL_TAKEN', 'Email ya registrado', 409);
     }
     // Anything else: log server-side, return generic 500 to the client.
-    console.error('[signup] unexpected error:', err);
+    // Structured log (T4 OQ-4): no clientId here — signup is the flow that
+    // CREATES the client; there is no session/tenant to attach yet.
+    logRouteError('auth/signup', err, { method: 'POST' });
     return errorResponse('INTERNAL_ERROR', 'Error al crear cuenta', 500);
   }
 }
+
+export const POST = withRouteErrors('auth/signup', handlePost);

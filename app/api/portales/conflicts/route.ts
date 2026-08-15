@@ -1,10 +1,11 @@
 import { db } from '@/lib/db';
 import { requireAuth, errorResponse } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { resolveConflict } from '@/core/normalizer/resolve';
 import { parseChain } from '@/lib/portales/chains';
 
 // GET ?chain= → conflicts grouped by portalString with candidate SKUs (§8.5).
-export async function GET(req: Request): Promise<Response> {
+async function handleGet(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   const chain = parseChain(new URL(req.url).searchParams.get('chain'));
@@ -24,7 +25,7 @@ export async function GET(req: Request): Promise<Response> {
 }
 
 // POST { chain, portalString, winnerProductId|null, firstSeenUploadId? } → resolveConflict.
-export async function POST(req: Request): Promise<Response> {
+async function handlePost(req: Request): Promise<Response> {
   const s = await requireAuth();
   if (s instanceof Response) return s;
   let body: { chain?: string; portalString?: string; winnerProductId?: string | null; firstSeenUploadId?: string };
@@ -32,6 +33,12 @@ export async function POST(req: Request): Promise<Response> {
     body = await req.json();
   } catch {
     return errorResponse('INVALID_BODY', 'Body must be JSON', 400);
+  }
+  // req.json() resolves for ANY valid JSON (null, "str", 5, [] included);
+  // property access on a non-object would TypeError → raw 500. Same guard as
+  // price-overrides PUT (T4 §4.5).
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return errorResponse('INVALID_BODY', 'Body must be a JSON object', 400);
   }
   const chain = parseChain(body.chain ?? null);
   if (!chain) return errorResponse('INVALID_CHAIN', 'Unknown chain', 400);
@@ -64,3 +71,6 @@ export async function POST(req: Request): Promise<Response> {
   await resolveConflict(db, { clientId: s.clientId, chain, portalString: body.portalString, winnerProductId: body.winnerProductId ?? null, firstSeenUploadId });
   return Response.json({ ok: true });
 }
+
+export const GET = withRouteErrors('portales/conflicts', handleGet);
+export const POST = withRouteErrors('portales/conflicts', handlePost);

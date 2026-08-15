@@ -16,13 +16,14 @@
 
 import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth-helpers';
+import { withRouteErrors } from '@/lib/route-errors';
 import { getDefaultPeriod } from '@/core/kpis/queries';
 
 function format(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, '0')}`;
 }
 
-export async function GET(): Promise<Response> {
+async function handleGet(): Promise<Response> {
   const sessionOrError = await requireAuth();
   if (sessionOrError instanceof Response) return sessionOrError;
   const { clientId, userId } = sessionOrError;
@@ -45,3 +46,5 @@ export async function GET(): Promise<Response> {
 
   return Response.json({ periods, defaultPeriod });
 }
+
+export const GET = withRouteErrors('dashboard/periods', handleGet);
