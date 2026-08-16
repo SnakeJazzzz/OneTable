@@ -22,7 +22,7 @@ const ERROR_COPY: Record<string, string> = {
   EMAIL_TAKEN: 'Ese email ya está registrado',
   INVALID_EMAIL: 'Email inválido',
   INVALID_PASSWORD: 'Tu contraseña debe tener al menos 10 caracteres',
-  PASSWORD_TOO_LONG: 'Tu contraseña es demasiado larga (máximo 72 caracteres)',
+  PASSWORD_TOO_LONG: 'La contraseña es demasiado larga. Usa una más corta.',
   INVALID_CLIENT_NAME: 'El nombre de la empresa es requerido',
   INVALID_BODY: 'Datos inválidos',
 };
@@ -89,7 +89,7 @@ export default function SignupPage() {
         <CardHeader>
           <CardTitle>Crear cuenta</CardTitle>
           <CardDescription>
-            Empezá a consolidar tu sell-out en minutos
+            Empieza a consolidar tu sell-out en minutos
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -149,7 +149,7 @@ export default function SignupPage() {
               {submitting ? 'Procesando...' : 'Crear cuenta'}
             </Button>
             <p className="text-sm text-muted-foreground text-center">
-              ¿Ya tenés cuenta?{' '}
+              ¿Ya tienes cuenta?{' '}
               <Link href="/login" className="text-primary hover:underline">
                 Iniciar sesión
               </Link>

@@ -79,7 +79,7 @@ export function ThresholdsForm({ cuts, loading, error, saveCuts }: ThresholdsFor
 
   // Compute inline validation on every keystroke
   const parsedCuts = formToCuts(form);
-  const validation = parsedCuts ? validateThresholdCuts(parsedCuts) : { ok: false as const, error: 'Ingresá valores enteros en todos los campos.' };
+  const validation = parsedCuts ? validateThresholdCuts(parsedCuts) : { ok: false as const, error: 'Ingresa valores enteros en todos los campos.' };
 
   // Determine which field has the structural error so we show it inline.
   // The error message from validateThresholdCuts is a single string; we show it

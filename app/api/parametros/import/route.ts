@@ -66,7 +66,7 @@ async function handlePost(req: Request): Promise<Response> {
     logRouteError('parametros/import', err, { method: 'POST', clientId });
     return errorResponse(
       'INVALID_XLSX',
-      'No se pudo leer el archivo. Verificá que sea un .xlsx válido.',
+      'No se pudo leer el archivo. Verifica que sea un .xlsx válido.',
       400,
     );
   }

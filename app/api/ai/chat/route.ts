@@ -268,7 +268,9 @@ async function handlePost(req: Request): Promise<Response> {
   if (!verdict.allowed) {
     return errorResponse(
       'RATE_LIMITED',
-      'Alcanzaste tu límite diario de preguntas al asistente',
+      // Dev-facing (T5, OQ-1=A): the panel branches on `code` with its own
+      // es-MX copy and never renders this message.
+      'Daily chat quota exceeded',
       429,
     );
   }

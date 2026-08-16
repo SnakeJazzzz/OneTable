@@ -50,7 +50,7 @@ export function errorResponse(
 export async function requireAuth(): Promise<AuthedSession | Response> {
   const session = await auth();
   if (!session?.user?.id || !session.user.clientId) {
-    return errorResponse('UNAUTHORIZED', 'Sign in required', 401);
+    return errorResponse('UNAUTHORIZED', 'Tu sesión expiró. Inicia sesión de nuevo.', 401);
   }
   return {
     userId: session.user.id,

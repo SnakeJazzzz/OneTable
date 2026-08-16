@@ -7,7 +7,7 @@ export default function PortalesPage() {
       <header className="space-y-2">
         <h1 className="text-3xl font-bold">Portales</h1>
         <p className="text-muted-foreground">
-          Configurá cada cadena: usuario, carga de archivos y mapeo de productos.
+          Configura cada cadena: usuario, carga de archivos y mapeo de productos.
         </p>
       </header>
       <PortalesGrid />

@@ -43,12 +43,12 @@ async function handlePost(req: Request): Promise<Response> {
     body.status === 'PENDING_REVIEW' ? 'PENDING_REVIEW' : 'CONFIRMED';
   // Defense: confirm the product belongs to this tenant.
   const owns = await db.product.findFirst({ where: { id: body.productId, clientId: s.clientId }, select: { id: true } });
-  if (!owns) return errorResponse('PRODUCT_NOT_FOUND', 'SKU not in your catalog', 404);
+  if (!owns) return errorResponse('PRODUCT_NOT_FOUND', 'Ese SKU no existe en tu catálogo.', 404);
 
   const result = await assignMapping(db, { clientId: s.clientId, chain, portalString: body.portalString, productId: body.productId, status });
   // FIX-1: refuse mapping onto an unresolved conflict with a clear 409.
   if (result.kind === 'conflict_exists') {
-    return errorResponse('CONFLICT_EXISTS', 'Ese portal string está en conflicto. Resolvé el conflicto antes de mapearlo.', 409);
+    return errorResponse('CONFLICT_EXISTS', 'Ese portal string está en conflicto. Resuelve el conflicto antes de mapearlo.', 409);
   }
   return Response.json({ result });
 }
@@ -88,7 +88,7 @@ async function handleDelete(req: Request): Promise<Response> {
     if (e instanceof ServiceError) {
       switch (e.code) {
         case 'MAPPING_CONFLICTED':
-          return errorResponse('CONFLICTED', 'Ese mapeo está en conflicto; resolvelo desde la sección de conflictos.', 409);
+          return errorResponse('CONFLICTED', 'Ese mapeo está en conflicto; resuélvelo desde la sección de conflictos.', 409);
         case 'MAPPING_NOT_FOUND':
           return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
       }
@@ -134,7 +134,7 @@ async function handlePatch(req: Request): Promise<Response> {
     if (e instanceof ServiceError) {
       switch (e.code) {
         case 'MAPPING_CONFLICTED':
-          return errorResponse('CONFLICTED', 'Ese mapeo está en conflicto; resolvelo desde la sección de conflictos.', 409);
+          return errorResponse('CONFLICTED', 'Ese mapeo está en conflicto; resuélvelo desde la sección de conflictos.', 409);
         case 'MAPPING_NOT_FOUND':
           return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
         case 'NOOP_RETARGET':

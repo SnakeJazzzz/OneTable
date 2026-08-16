@@ -70,7 +70,7 @@ export default function AnalisisPage() {
           <h1 className="text-3xl font-bold text-foreground">Análisis</h1>
           <p className="text-muted-foreground">
             {uploads.length === 0
-              ? <>Todavía no hay uploads. Subí tus archivos desde{' '}<Link href="/portales" className="text-primary hover:underline">Portales</Link>.</>
+              ? <>Todavía no hay uploads. Sube tus archivos desde{' '}<Link href="/portales" className="text-primary hover:underline">Portales</Link>.</>
               : <>Historial de uploads. Para subir nuevos archivos, ir a{' '}<Link href="/portales" className="text-primary hover:underline">Portales</Link>.</>}
           </p>
         </div>

@@ -134,7 +134,7 @@ export function ImportZone({ onImportComplete }: ImportZoneProps) {
     <Card className="p-5 space-y-4">
       {/* §10.2 microcopy */}
       <p className="text-sm text-muted-foreground">
-        Para actualizar SKUs existentes, exportá primero el catálogo desde Parámetros. La columna
+        Para actualizar SKUs existentes, exporta primero el catálogo desde Parámetros. La columna
         Código es el enlace entre tu Excel y tus SKUs.
       </p>
 
@@ -183,7 +183,7 @@ export function ImportZone({ onImportComplete }: ImportZoneProps) {
         ) : (
           <div className="space-y-1">
             <p className="text-sm font-medium text-foreground">
-              Arrastrá el archivo aquí o hacé clic para seleccionar
+              Arrastra el archivo aquí o haz clic para seleccionar
             </p>
             <p className="text-xs text-muted-foreground">
               Solo .xlsx · máx 10 MB

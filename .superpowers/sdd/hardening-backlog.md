@@ -1118,6 +1118,38 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       `INVALID_BODY`) = decisión futura, candidato al próximo touch de
       esas rutas.
 
+## T5 — minors de la doble review (no bloquean; registrados 2026-08-15)
+
+> Hallazgos MINOR del carril quality (Q-*) de la tanda única de T5
+> (copy). Carril spec: PASS sin hallazgos y ambos checkpoints en PASS.
+> Cero MAJOR: el diff fue al filtro externo SIN fix pass. Detalle
+> completo con escenarios en `.superpowers/sdd/t5-review-spec.md` y
+> `t5-review-quality.md`.
+
+- [ ] (Q-1 quality) **Envenenamiento residual del historial por camino
+      compuesto**: un mensaje largo que falla por RED (error genérico →
+      queda en el historial) seguido de un mensaje corto NUEVO (en vez
+      de Reintentar) → el server 400-ea por el mensaje viejo, pero el
+      efecto de limpieza remueve y "restaura" el mensaje corto inocente
+      (criterio "último user sin assistant posterior") — el ofensor
+      nunca sale y el panel queda envenenado hasta navegar fuera
+      (`components/analisis/chat-panel.tsx:159-175`). Camino compuesto
+      y raro. Fix candidato: remover TODOS los user trailing sin
+      assistant posterior, o capturar el id del ofensor en
+      `handleSubmit`. Destino: próximo touch de chat-panel.tsx.
+- [ ] (Q-2 quality) **`setInput(restoredText)` puede pisar un borrador
+      en tipeo** cuando llega el 400 (el input no se deshabilita
+      durante el in-flight; `chat-panel.tsx:176`). Destino: próximo
+      touch de chat-panel.tsx.
+- [ ] (Q-3 quality) **Copy del 429 duplicado inline** entre el JSX
+      (`chat-panel.tsx:238-241`) y el announcer (`:269`) — riesgo de
+      drift visual vs. screen reader; el de MESSAGE_TOO_LONG sí
+      comparte const. Extraer a const compartida en el próximo touch.
+- [ ] (Q-4 quality, teórico) **`useMemo` no es garantía semántica de
+      "una vez por objeto de error"** per React docs (puede recomputar);
+      nota de robustez sin acción requerida — el guard real del efecto
+      de limpieza es `handledErrorRef`, no el memo.
+
 ## Pendiente-por-archivo
 
 - [ ] **Code-skip §5.4 con archivo Amazon real** — ítem 5 del smoke de B4,

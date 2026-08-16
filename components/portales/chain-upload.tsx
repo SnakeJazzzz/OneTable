@@ -239,7 +239,7 @@ function SingleSlot({ chain, fileType, label, onUploaded }: SingleSlotProps) {
           <div className="space-y-1">
             <Upload className="h-6 w-6 text-muted-foreground mx-auto" aria-hidden="true" />
             <p className="text-xs text-muted-foreground">
-              Arrastrá o hacé clic · solo .xlsx · máx 10 MB
+              Arrastra o haz clic · solo .xlsx · máx 10 MB
             </p>
           </div>
         )}

@@ -14,7 +14,7 @@ export function DashboardEmpty() {
       <header className="space-y-2">
         <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
         <p className="text-muted-foreground">
-          Subí tu primer archivo en Análisis para ver tus KPIs.
+          Sube tu primer archivo en Análisis para ver tus KPIs.
         </p>
         <Link href="/analisis">
           <Button className="mt-2 gap-2">

@@ -170,7 +170,7 @@ function SkuSelect({
       disabled={disabled}
       className={selectClasses}
     >
-      <option value="">Seleccioná un SKU…</option>
+      <option value="">Selecciona un SKU…</option>
       {skus.map((s) => (
         <option key={s.id} value={s.id}>
           {s.nameStandard} ({s.skuCode})
@@ -245,7 +245,7 @@ function SuggestionRowItem({
             aria-live="polite"
             className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-600 dark:text-yellow-400"
           >
-            Revisá: coincidencia parcial. Sugerencia:{' '}
+            Revisa: coincidencia parcial. Sugerencia:{' '}
             <span className="font-medium">{suggestion.nameStandard}</span>
           </p>
           <div className="flex items-center gap-2">
@@ -709,7 +709,7 @@ export function MappingSection({
         setNotice({
           kind: 'conflict',
           portalString,
-          message: `"${portalString}" generó un conflicto. Resolvelo en la sección "En conflicto".`,
+          message: `"${portalString}" generó un conflicto. Resuélvelo en la sección "En conflicto".`,
         });
         onMappingChange();
       } else {
@@ -833,7 +833,7 @@ export function MappingSection({
                 below. The note is informative, not a dead-end. */}
             {codeSkip && (
               <p className="rounded-md border border-border bg-card/50 px-3 py-2 text-sm text-muted-foreground">
-                Columna por código (ASIN/EAN): mapeá cada string manualmente.
+                Columna por código (ASIN/EAN): mapea cada string manualmente.
               </p>
             )}
 

@@ -14,7 +14,7 @@ export type ParametersImportResult = {
 };
 
 const NEW_CATALOG_WARNING =
-  'este Excel no tiene códigos. Para actualizaciones futuras, exportá primero desde Parámetros.';
+  'este Excel no tiene códigos. Para actualizaciones futuras, exporta primero desde Parámetros.';
 
 // Header detection is case/accent-tolerant. We normalize by stripping accents,
 // lowercasing, and trimming, then match against canonical keys.
