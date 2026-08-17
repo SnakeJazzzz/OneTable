@@ -63,11 +63,14 @@ Preview verificado pre-smoke: deploy READY con
   (indistinguible de "nunca borrado" por velocidad del 400 —
   esperado), y pregunta corta RESPONDIDA tras DOS 400s consecutivos
   (anti-envenenamiento validado con dos ofensores removidos).
-- **Paso 3 (announcer):** cerrado en el gate; la EVIDENCIA exacta
-  quedó sin precisar en el prompt de cierre (slot sin llenar:
-  "verificado por console: textContent = copy de MTL" vs "cerrado con
-  evidencia de la doble review"). A PRECISAR por Michael — corrección
-  docs-only de una línea sobre este handoff.
+- **Paso 3 (announcer):** cerrado en el gate; evidencia:
+  [SLOT — Michael: opción (a) "Verificado por Michael post-merge
+  sobre el deployment de main:
+  `document.querySelector('p[role=status]').textContent` = copy de
+  MESSAGE_TOO_LONG durante el 400 — PASS" / opción (b) "Cerrado con
+  la evidencia de la doble review (ambos carriles verificaron la
+  simetría del announcer con el render sobre el mismo errorCode);
+  sin verificación DOM en vivo — aceptado por Michael como gate"].
 - **Paso 4 (ALL_FILES_FAILED): el disparador planificado NO lo
   ejercitó** — hallazgo de producto PRE-EXISTENTE: SheetJS parsea
   texto plano vía fallback CSV → workbook con 0 filas → pipeline
