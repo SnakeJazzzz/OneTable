@@ -52,7 +52,7 @@ export default function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Iniciar sesión</CardTitle>
-          <CardDescription>Accedé a tu dashboard de OneTable</CardDescription>
+          <CardDescription>Accede a tu dashboard de OneTable</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
@@ -94,7 +94,7 @@ export default function LoginPage() {
               {submitting ? 'Procesando...' : 'Iniciar sesión'}
             </Button>
             <p className="text-sm text-muted-foreground text-center">
-              ¿No tenés cuenta?{' '}
+              ¿No tienes cuenta?{' '}
               <Link href="/signup" className="text-primary hover:underline">
                 Crear cuenta
               </Link>

@@ -344,7 +344,7 @@ export function SkuTable({ skus, loading, error, onCreate, onUpdate, onDelete }:
             {skus.length === 0 && !addingNew && (
               <tr>
                 <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
-                  No hay SKUs en el catálogo. Agregá el primero o importá un Excel.
+                  No hay SKUs en el catálogo. Agrega el primero o importa un Excel.
                 </td>
               </tr>
             )}

@@ -129,7 +129,7 @@ async function handlePut(req: Request): Promise<Response> {
     where: { id: productId, clientId: s.clientId },
     select: { id: true },
   });
-  if (!owns) return errorResponse('PRODUCT_NOT_FOUND', 'SKU not in your catalog', 404);
+  if (!owns) return errorResponse('PRODUCT_NOT_FOUND', 'Ese SKU no existe en tu catálogo.', 404);
 
   if (purchase.kind === 'empty' && sale.kind === 'empty') {
     // Both empty → no override row at all (§4.3: absence = use base).
@@ -153,7 +153,7 @@ async function handlePut(req: Request): Promise<Response> {
     // The sibling deleteMany branch needs no equivalent: deleting override
     // rows can't violate the FK (worst case it deletes 0 rows).
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
-      return errorResponse('PRODUCT_NOT_FOUND', 'SKU not in your catalog', 404);
+      return errorResponse('PRODUCT_NOT_FOUND', 'Ese SKU no existe en tu catálogo.', 404);
     }
     throw err; // anything else → withRouteErrors: 500 JSON + log
   }

@@ -60,7 +60,18 @@
    smoke de preview completo con CSP enforced y console limpia; smoke de
    prod (/analisis) ídem; POST manual al csp-report de prod → 204 con log
    en Runtime Logs; violations reales en prod: CERO (el eval de
-   /promotoria en Report-Only queda como ítem pre-T6). Suite 461/49.
+   /promotoria en Report-Only queda como ítem pre-T6. **AMPLIADO por el
+   smoke de T4, 2026-08-15:** violation CSP REAL en el error path de
+   `/analisis` bajo enforced — script-src bloqueó un `eval` en
+   `/_next/static/chunks/34-09a2e5143d5aa06c.js`, chunk de VENDOR;
+   report completo capturado del csp-report 2026-08-15 05:03:44 UTC.
+   Misma familia: el eval de vendor también es alcanzable desde
+   /analisis bajo error path con CSP enforced. Antes del flip de prod a
+   enforced en T6: identificar el origen del eval (¿recharts u otro
+   vendor de /analisis?) y decidir fix vs riesgo aceptado. Pregunta
+   abierta: no se verificó si el eval también dispara en /analisis con
+   DB sana — el e2e no lo midió. Puntero:
+   `docs/handoff/session-t4-close.md` §4). Suite 461/49.
    Audit: 70 → 50 vulns (criticals accionables cerrados; restantes
    triageados en este ledger). Detalle:
    `docs/handoff/session-t2-close.md`.]** `next` 14.2.18 → 14.2.35 con protocolo supply-chain
@@ -117,7 +128,25 @@
    verificado funcionando en preview y prod. El rate limit sigue siendo
    la protección del saldo.**
 
-4. **ROBUSTEZ / OBSERVABILIDAD.** Error boundaries (`error.tsx`,
+4. **ROBUSTEZ / OBSERVABILIDAD.** **[COMPLETADO 2026-08-15 — PR #19
+   mergeado a main (`9ef19a1`), branch borrada. Tanda única con doble
+   review ciega (APPROVE WITH MINORS ×2, cero MAJOR — diff al filtro
+   sin fix pass; la primera corrida de reviews abortó por session limit
+   y se re-corrió completa). Gate cerrado con evidencia del smoke (d)
+   sobre el preview de la BRANCH (2026-08-14/15): DATABASE_URL de
+   Preview rota + redeploy de la branch → `error.tsx` con estilo de la
+   app en /dashboard//analisis//portales, 500 JSON
+   `{error:{code:'INTERNAL'}}` en /api/uploads y /api/clients con
+   líneas de log estructurado (`source:'api'`, route, method,
+   PrismaClientInitializationError) verificadas EN VIVO en Runtime
+   Logs; 24 rutas ƒ en build (re-throw DYNAMIC_SERVER_USAGE
+   funcionando); e2e completo post-restauración. CI re-valida 510/53.
+   `withRouteErrors` en 23/24 rutas — `auth/[...nextauth]` SIN wrap por
+   evidencia empírica OQ-1 (nada escapa del handler de NextAuth).
+   Desviaciones S-2/S-3/S-4 sancionadas; S-1 corregido en el reporte
+   (brief frozen). Minors Q-1..Q-7 en la sección "T4 — minors de la
+   doble review". Detalle: `docs/handoff/session-t4-close.md`.]**
+   Error boundaries (`error.tsx`,
    `global-error.tsx`, `not-found.tsx` con estilo de la app). Sweep
    `withRouteErrors()` + error codes/classes en los services en UNA SOLA
    pasada por rutas (rutas clase b/c ya listadas en este backlog). Logs
@@ -150,7 +179,19 @@
 
 ## Rutas / services
 
-- [ ] **Sweep de error codes/classes en services y rutas.** Incluye tres
+- [x] **Sweep de error codes/classes en services y rutas.** **RESUELTO
+      por T4 (PR #19, `9ef19a1`, 2026-08-15):** los tres frentes en una
+      sola pasada — (1) substring error-matching reemplazado por
+      `ServiceError` con code (`core/normalizer/errors.ts`) en los 8
+      throws de `resolve.ts` + mapeo por `instanceof` en mappings
+      DELETE/PATCH conservando el `throw e` (E1); (2) TOCTOU de
+      price-overrides PUT: catch local P2003→404 `PRODUCT_NOT_FOUND` en
+      el upsert (el deleteMany no puede violar la FK); (3) guard de body
+      no-objeto EXTENDIDO de los 2 listados a 6 rutas/verbos (mappings
+      POST/DELETE/PATCH, credentials PUT, conflicts POST, thresholds
+      PUT). Nota: Q-1 de T4 registra un residuo nuevo de la migración
+      (P2025 en race de doble-DELETE pasó de 404 accidental a 500) — ver
+      sección "T4 — minors". Incluía tres
       frentes de la misma familia:
       - (origen: b4-followups §11.5a-fix/11.6a/11.6b) **Substring
         error-matching in route throw-mapping (DELETE + PATCH):**
@@ -225,12 +266,25 @@
 
 ## Observabilidad / prod
 
-- [ ] **Errores técnicos crudos de cara al usuario.** Evidencia registrada:
+- [x] **Errores técnicos crudos de cara al usuario.** Evidencia registrada:
       en prod, `/api/auth/callback/credentials` devuelve stack trace crudo
       en el error path (docs/handoff/session-b4-followups-end.md:65-67).
       Barrido: error boundaries + mensajes de usuario en rutas y páginas;
       los 500 con shape `{error}` uniforme ya existen en las rutas de
       Portales/Parámetros — el gap es auth y páginas server-side.
+      **RESUELTO por T4 (PR #19, `9ef19a1`, 2026-08-15):** rutas API
+      cerradas por el wrapper (invariante 24/24, 500 JSON uniforme) y
+      páginas por los boundaries (`error.tsx`/`global-error.tsx`/
+      `not-found.tsx`). El residuo de auth quedó resuelto POR EVIDENCIA
+      (OQ-1): NextAuth 5.0.0-beta.32 / @auth/core 0.41.3 maneja los
+      throws de authorize internamente — 302 a /api/auth/error con body
+      vacío, sin stack (verificación empírica del implementer, throw
+      forzado con flujo real CSRF+callback; la observación de
+      b4-followups era con next-auth 5.0.0-beta.25 — versión vigente en
+      el lockfile desde `48d554d` (2026-05-18) hasta el bump a beta.32
+      en T2 (`0f0d44e`), verificada vía `git show <hash>:pnpm-lock.yaml`
+      — y no se reprodujo con beta.32). Sin wrap: sería código
+      inalcanzable.
 - [x] **DB de prod separada + backups.** Hoy dev y beta comparten la Neon
       dev DB. Database/branch de prod separada, backups automáticos.
       Fundamento actualizado 2026-07-20: por DISEÑO (dev/tests no deben
@@ -262,6 +316,17 @@
       TAMAÑO por mensaje — un mensaje de megabytes pasa entero al modelo.
       Evaluar cap de bytes/chars por mensaje o por ventana cuando se haga
       el hardening del chat (junto con el rate limiting del ítem anterior).
+- [ ] (origen: filtro externo T5 v2, 2026-08-15) **Verificar
+      alcanzabilidad real del cap per-file de 10MB de data/upload en
+      deployed**: el límite de payload de las serverless functions de
+      Vercel podría interceptar el request ANTES de que corra el cap de
+      la app (evidencia a capturar en el smoke de T5, paso 5b opcional).
+      Relacionado con el pre-check de Content-Length ya diferido a T6.
+      Destino: T6.
+- [ ] (origen: filtro externo T5 v2, 2026-08-15) **Deuda UX del 401
+      inline**: con sesión expirada, las secciones muestran el error como
+      message crudo en vez de redirigir a login. T5 solo traduce el
+      string. Destino: Fase 2.5 (rediseño con landing/cuentas).
 
 ## Infra de tests
 
@@ -490,7 +555,12 @@
       Esfuerzo: S** — `async headers()` en `next.config.mjs` o bloque `headers`
       en `vercel.json`. CSP es la más laboriosa (hay que enumerar orígenes).
 
-- [ ] **Throws de DB inesperados devuelven 500 crudo (HTML/stack), no `{error}`,
+- [x] **[RESUELTO por T4 — PR #19 (`9ef19a1`), 2026-08-15: helper
+      `withRouteErrors()` en `lib/route-errors.ts` aplicado a las 24
+      rutas (23 wrapped + nextauth excluida por evidencia OQ-1) — 500
+      `{error:{code:'INTERNAL'}}` uniforme + log JSON estructurado;
+      verificado en infra real con DB caída en el smoke del gate.]**
+      **Throws de DB inesperados devuelven 500 crudo (HTML/stack), no `{error}`,
       en la mayoría de las rutas.** Anti-patrón dominante: el try/catch envuelve
       solo `req.json()`/`formData()` y deja la llamada de DB afuera. Solo 4
       rutas con cobertura completa (`auth/signup`, `data/reset`,
@@ -505,7 +575,12 @@
       callback). **Sev: MEDIA (leak de stack + UX). Esfuerzo: M** — helper
       `withRouteErrors()` que envuelva cada handler y mapee a `{error}` 500.
 
-- [ ] **Sin error boundaries en app/**: cero `error.tsx`, `global-error.tsx`,
+- [x] **[RESUELTO por T4 — PR #19 (`9ef19a1`), 2026-08-15: `app/error.tsx`,
+      `app/global-error.tsx` (autocontenido, verificado en prod-mode
+      local) y `app/not-found.tsx` con estilo de la app en tuteo;
+      error.tsx verificado en infra real en el smoke del gate. Residuo
+      Q-2 (reset() sin router.refresh()) en "T4 — minors".]**
+      **Sin error boundaries en app/**: cero `error.tsx`, `global-error.tsx`,
       `not-found.tsx`. Un throw en cualquier página/RSC (incluido `(dashboard)/`)
       cae en la pantalla de error default de Next, sin estilo de la app y sin
       404 custom. **Sev: MEDIA (UX). Esfuerzo: S.**
@@ -1042,6 +1117,38 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       catches pre-existentes); extender el guard R1 ahí (400 fino
       `INVALID_BODY`) = decisión futura, candidato al próximo touch de
       esas rutas.
+
+## T5 — minors de la doble review (no bloquean; registrados 2026-08-15)
+
+> Hallazgos MINOR del carril quality (Q-*) de la tanda única de T5
+> (copy). Carril spec: PASS sin hallazgos y ambos checkpoints en PASS.
+> Cero MAJOR: el diff fue al filtro externo SIN fix pass. Detalle
+> completo con escenarios en `.superpowers/sdd/t5-review-spec.md` y
+> `t5-review-quality.md`.
+
+- [ ] (Q-1 quality) **Envenenamiento residual del historial por camino
+      compuesto**: un mensaje largo que falla por RED (error genérico →
+      queda en el historial) seguido de un mensaje corto NUEVO (en vez
+      de Reintentar) → el server 400-ea por el mensaje viejo, pero el
+      efecto de limpieza remueve y "restaura" el mensaje corto inocente
+      (criterio "último user sin assistant posterior") — el ofensor
+      nunca sale y el panel queda envenenado hasta navegar fuera
+      (`components/analisis/chat-panel.tsx:159-175`). Camino compuesto
+      y raro. Fix candidato: remover TODOS los user trailing sin
+      assistant posterior, o capturar el id del ofensor en
+      `handleSubmit`. Destino: próximo touch de chat-panel.tsx.
+- [ ] (Q-2 quality) **`setInput(restoredText)` puede pisar un borrador
+      en tipeo** cuando llega el 400 (el input no se deshabilita
+      durante el in-flight; `chat-panel.tsx:176`). Destino: próximo
+      touch de chat-panel.tsx.
+- [ ] (Q-3 quality) **Copy del 429 duplicado inline** entre el JSX
+      (`chat-panel.tsx:238-241`) y el announcer (`:269`) — riesgo de
+      drift visual vs. screen reader; el de MESSAGE_TOO_LONG sí
+      comparte const. Extraer a const compartida en el próximo touch.
+- [ ] (Q-4 quality, teórico) **`useMemo` no es garantía semántica de
+      "una vez por objeto de error"** per React docs (puede recomputar);
+      nota de robustez sin acción requerida — el guard real del efecto
+      de limpieza es `handledErrorRef`, no el memo.
 
 ## Pendiente-por-archivo
 

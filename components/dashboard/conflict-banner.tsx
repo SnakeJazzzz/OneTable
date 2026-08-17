@@ -10,7 +10,7 @@ export function ConflictBanner({ count }: { count: number }) {
     >
       <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
       <span>
-        {count === 1 ? '1 portal string en conflicto' : `${count} portal strings en conflicto`}. Resolvelos en{' '}
+        {count === 1 ? '1 portal string en conflicto' : `${count} portal strings en conflicto`}. Resuélvelos en{' '}
         <Link href="/portales" className="font-medium underline">
           Portales
         </Link>{' '}

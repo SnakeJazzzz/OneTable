@@ -162,13 +162,13 @@ async function handlePost(req: Request): Promise<Response> {
       const issues: string[] = [];
       // A File in a metadata field is a caller bug distinct from an absent
       // field — reporting it as "missing" misleads whoever debugs the client.
-      if (rawChain instanceof File) issues.push('chain field must be a plain text value, not a file');
-      else if (chainStr === null) issues.push('chain field missing');
-      else if (parsedChain === null) issues.push(`unknown chain: "${chainStr}"`);
-      if (rawFileType instanceof File) issues.push('fileType field must be a plain text value, not a file');
-      else if (fileTypeStr === null) issues.push('fileType field missing');
-      else if (parsedFileType === null) issues.push(`unknown fileType: "${fileTypeStr}"`);
-      explicitError = `invalid explicit upload metadata: ${issues.join('; ')}`;
+      if (rawChain instanceof File) issues.push('el campo chain debe ser texto plano, no un archivo');
+      else if (chainStr === null) issues.push('falta el campo chain');
+      else if (parsedChain === null) issues.push(`cadena desconocida: "${chainStr}"`);
+      if (rawFileType instanceof File) issues.push('el campo fileType debe ser texto plano, no un archivo');
+      else if (fileTypeStr === null) issues.push('falta el campo fileType');
+      else if (parsedFileType === null) issues.push(`fileType desconocido: "${fileTypeStr}"`);
+      explicitError = `metadatos de carga inválidos: ${issues.join('; ')}`;
     }
   }
 
@@ -194,7 +194,7 @@ async function handlePost(req: Request): Promise<Response> {
   if (!anySuccess) {
     return Response.json(
       {
-        error: { code: 'ALL_FILES_FAILED', message: 'No files could be processed' },
+        error: { code: 'ALL_FILES_FAILED', message: 'No se pudo procesar ningún archivo.' },
         perFile,
       },
       { status: 400 },
@@ -237,7 +237,7 @@ async function processOneFile(
   if (file.size > MAX_UPLOAD_FILE_BYTES) {
     return {
       filename: file.name,
-      error: `file too large: ${file.size} bytes (max ${MAX_UPLOAD_FILE_BYTES} bytes / 10 MB)`,
+      error: `archivo demasiado grande: ${file.size} bytes (máximo ${MAX_UPLOAD_FILE_BYTES} bytes / 10 MB)`,
     };
   }
 
@@ -247,7 +247,7 @@ async function processOneFile(
     return {
       filename: file.name,
       error:
-        'unknown file type — expected filename to match soriana, chedraui, amazon ventas, or amazon inv',
+        'tipo de archivo desconocido — el nombre debe corresponder a soriana, chedraui, amazon ventas o amazon inv',
     };
   }
 
@@ -255,7 +255,7 @@ async function processOneFile(
   if (!parser) {
     return {
       filename: file.name,
-      error: `no parser registered for ${resolved.chain}/${resolved.fileType}`,
+      error: `no hay parser para ${resolved.chain}/${resolved.fileType}`,
     };
   }
 

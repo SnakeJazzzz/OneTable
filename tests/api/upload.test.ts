@@ -157,7 +157,7 @@ describe('POST /api/data/upload', () => {
     const body = await res.json();
     expect(body.error.code).toBe('ALL_FILES_FAILED');
     expect(body.perFile).toHaveLength(1);
-    expect(body.perFile[0].error).toMatch(/invalid explicit/);
+    expect(body.perFile[0].error).toMatch(/metadatos de carga inválidos/);
   });
 
   it('returns per-file error when only one of chain/fileType is provided (chain without fileType)', async () => {
@@ -172,7 +172,7 @@ describe('POST /api/data/upload', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe('ALL_FILES_FAILED');
-    expect(body.perFile[0].error).toMatch(/invalid explicit/);
+    expect(body.perFile[0].error).toMatch(/metadatos de carga inválidos/);
   });
 
   it('returns per-file error when only one of chain/fileType is provided (fileType without chain)', async () => {
@@ -187,7 +187,7 @@ describe('POST /api/data/upload', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe('ALL_FILES_FAILED');
-    expect(body.perFile[0].error).toMatch(/chain field missing/);
+    expect(body.perFile[0].error).toMatch(/falta el campo chain/);
   });
 
   it('returns per-file error naming the misuse when chain is sent as a File (B5-3 A5)', async () => {
@@ -210,7 +210,7 @@ describe('POST /api/data/upload', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe('ALL_FILES_FAILED');
-    expect(body.perFile[0].error).toMatch(/chain field must be a plain text value, not a file/);
+    expect(body.perFile[0].error).toMatch(/el campo chain debe ser texto plano, no un archivo/);
   });
 
   // T2 §2.9 per-file 10MB cap. The boundary tests mock `File.size` via
@@ -237,7 +237,7 @@ describe('POST /api/data/upload', () => {
     const body = await res.json();
     expect(body.perFile).toHaveLength(1);
     expect(body.perFile[0].filename).toBe('soriana-big.xlsx');
-    expect(body.perFile[0].error).toMatch(/file too large/);
+    expect(body.perFile[0].error).toMatch(/archivo demasiado grande/);
   });
 
   it('a file of exactly 10MB passes the cap (reaches the pipeline)', async () => {
@@ -249,7 +249,7 @@ describe('POST /api/data/upload', () => {
     // size cap. (xlsx parses 16 zero bytes leniently as an empty workbook,
     // so the pipeline happens to succeed with 0 rows — either way, no
     // "file too large" rejection may appear for the boundary file.)
-    expect(JSON.stringify(body.perFile[0])).not.toMatch(/file too large/);
+    expect(JSON.stringify(body.perFile[0])).not.toMatch(/archivo demasiado grande/);
   });
 
   it('returns 400 when ALL files have unmatched filenames', async () => {
@@ -266,7 +266,7 @@ describe('POST /api/data/upload', () => {
     expect(body.error.code).toBe('ALL_FILES_FAILED');
     expect(body.perFile).toHaveLength(2);
     for (const f of body.perFile) {
-      expect(f.error).toMatch(/unknown file type/);
+      expect(f.error).toMatch(/tipo de archivo desconocido/);
     }
   });
 });

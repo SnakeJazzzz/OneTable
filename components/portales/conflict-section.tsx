@@ -7,7 +7,7 @@ import { useChainConflicts } from '@/lib/hooks/use-portales';
 
 // §8.4 microcopy — shown verbatim above the conflict list.
 const CONFLICT_HELP =
-  'Las filas en conflicto suman en los totales generales pero no en el análisis por SKU. Resolvé el conflicto para que entren al detalle del producto.';
+  'Las filas en conflicto suman en los totales generales pero no en el análisis por SKU. Resuelve el conflicto para que entren al detalle del producto.';
 
 type PostResult = { ok: true } | { ok: false; message: string };
 
