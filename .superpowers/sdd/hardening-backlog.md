@@ -1219,6 +1219,41 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       nota de robustez sin acción requerida — el guard real del efecto
       de limpieza es `handledErrorRef`, no el memo.
 
+## T6 Tanda A — minors de la doble review (no bloquean; registrados 2026-08-18)
+
+> Tanda A de T6 (fix jitless de zod — eval del chunk 34; brief congelado
+> `t6-cierre-brief.md` @ `59f285c`, §4 F0). Carril spec: PASS limpio
+> (12 ítems COMPLIANT). Carril quality: APPROVE WITH MINORS (cero
+> MAJOR, 3 MINOR). Q-2/Q-3 RESUELTOS inline en el fix pass de la tanda
+> (re-review del carril quality: PASS — sección "Fix pass Q-2/Q-3" de
+> `t6-tanda-a-review-quality.md`). Detalle completo en
+> `.superpowers/sdd/t6-tanda-a-review-{spec,quality}.md`.
+
+- [ ] (Q-1 quality) **Protección de un solo punto del jitless**
+      (`lib/zod-jitless.ts` importado SOLO desde
+      `components/analisis/chat-panel.tsx:29`): cualquier client
+      component futuro que importe zod sin pasar por chat-panel
+      (probable en Fase 2.5 — forms) reintroduce la violation CSP del
+      probe `allowsEval` en silencio. Candidato: guard eslint
+      `no-restricted-imports` sobre `zod` en `components/**` con
+      mensaje apuntando al patrón zod-jitless. Destino: Fase 2.5 /
+      próximo touch de la config de eslint.
+- [ ] (nit del assert, quality) **`z.config().jitless` como alternativa
+      marginalmente más estable** que `z.core.globalConfig.jitless` en
+      el assert de `tests/lib/zod-jitless.test.ts` (getter público de
+      lectura vs objeto interno). Sin acción — registro.
+- [x] (Q-2 quality) **[RESUELTO inline, fix pass Tanda A 2026-08-18]**
+      El comment de `lib/zod-jitless.ts` afirmaba jitless server-side
+      garantizado ("the chat tools parse without JIT") cuando el API
+      route del chat no importa el módulo; reformulado a "aplica donde
+      ESTE módulo evalúa (client bundle + pase SSR de /analisis); el
+      route conserva su default propio".
+- [x] (Q-3 quality) **[RESUELTO inline, fix pass Tanda A 2026-08-18]**
+      El NOTE del test sobrestimaba el leak de estado global
+      ("process-wide"); corregido al aislamiento real de la suite
+      (`fileParallelism: false` + `isolate` default true → mutación
+      confinada al archivo de test).
+
 ## Pendiente-por-archivo
 
 - [ ] **Code-skip §5.4 con archivo Amazon real** — ítem 5 del smoke de B4,
