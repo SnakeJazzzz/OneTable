@@ -4,6 +4,9 @@ import { withRouteErrors } from '@/lib/route-errors';
 import { assignMapping, deleteMapping, retargetMapping } from '@/core/normalizer/resolve';
 import { ServiceError } from '@/core/normalizer/errors';
 import { parseChain } from '@/lib/portales/chains';
+// `Prisma` is a VALUE import (instanceof check in the P2025 branches below);
+// MappingStatus stays type-only.
+import { Prisma } from '@prisma/client';
 import type { MappingStatus } from '@prisma/client';
 
 // GET ?chain= → existing mappings (rows per SKU, §3.2.1).
@@ -93,6 +96,13 @@ async function handleDelete(req: Request): Promise<Response> {
           return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
       }
     }
+    // I-8 (T6): a double-DELETE race can reach the service after the mapping
+    // row is already gone — Prisma throws P2025 (record not found). Same
+    // real-world outcome as MAPPING_NOT_FOUND, so map it to the same 404
+    // instead of letting the benign race become a 500.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+      return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
+    }
     throw e; // non-ServiceError (and unmapped codes) go up to withRouteErrors: 500 JSON + log
   }
   return Response.json({ ok: true });
@@ -142,6 +152,12 @@ async function handlePatch(req: Request): Promise<Response> {
         case 'PRODUCT_NOT_FOUND':
           return errorResponse('PRODUCT_NOT_FOUND', 'Ese SKU no existe en tu catálogo.', 404);
       }
+    }
+    // I-8 (T6): same double-request race as DELETE — a concurrent
+    // delete/retarget can leave the service updating a row that no longer
+    // exists (Prisma P2025). Map it to the MAPPING_NOT_FOUND 404.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+      return errorResponse('MAPPING_NOT_FOUND', 'No existe ese mapeo.', 404);
     }
     throw e; // non-ServiceError (and unmapped codes) go up to withRouteErrors: 500 JSON + log
   }

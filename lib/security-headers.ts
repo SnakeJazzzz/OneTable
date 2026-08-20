@@ -11,8 +11,10 @@
  *
  * Environment mapping (decided in T2 brief §2.3, resolved at BUILD time via
  * `VERCEL_ENV` — preview and production are separate builds):
- *   - production  → `Content-Security-Policy-Report-Only` (observe first;
- *                    the flip to enforced is T6, gated on zero violations).
+ *   - production  → `Content-Security-Policy` ENFORCED (flipped in T6; it
+ *                    shipped as Report-Only from T2 while gated on zero
+ *                    violations — the last one, zod's `allowsEval` probe,
+ *                    was fixed via jitless in T6 Tanda A).
  *   - preview     → `Content-Security-Policy` ENFORCED (previews are where
  *                    the policy is exercised for real, pre-merge smoke).
  *   - development → ENFORCED with dev-only relaxations (see below).
@@ -34,10 +36,11 @@
  *     blocked HMR socket fails loudly in the console if this ever needs
  *     revisiting. Zero production impact.
  *
- * NOTE on frame-ancestors: browsers IGNORE `frame-ancestors` when the
- * policy is delivered as Report-Only (production). That is NOT a gap: the
- * effective anti-iframe control in every environment is the always-enforced
- * `X-Frame-Options: DENY` below. Do not flag it in review.
+ * NOTE on frame-ancestors: browsers IGNORE `frame-ancestors` when a policy
+ * is delivered as Report-Only (as production was pre-flip, T2→T6). Since
+ * the T6 flip every environment enforces, so `frame-ancestors 'none'` is
+ * active everywhere; `X-Frame-Options: DENY` below stays as the redundant
+ * second layer. Do not flag the redundancy in review.
  */
 
 export type CspEnv = 'development' | 'preview' | 'production';
@@ -64,6 +67,11 @@ export function buildAlwaysEnforcedHeaders(): Header[] {
       key: 'Permissions-Policy',
       value: 'camera=(), microphone=(), geolocation=()',
     },
+    // COOP (T6, ZAP Z-7): isolates the window from cross-origin openers.
+    // No OAuth-popup flows exist to break. COEP was considered and
+    // DISCARDED (Z-6): no cross-origin isolation need, and a misapplied
+    // COEP breaks embedded resources.
+    { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
   ];
 }
 
@@ -92,18 +100,23 @@ export function buildCspDirectives(env: CspEnv): string[] {
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
+    // form-action does NOT fall back to default-src (T6, ZAP Z-1): without
+    // it an XSS could exfiltrate via <form action=evil>. Pure tightening —
+    // the app's forms submit same-origin (client-side onSubmit → /api/*).
+    "form-action 'self'",
     'report-uri /api/csp-report',
   ];
 }
 
-/** The CSP header for the given environment: enforced everywhere except
- * production, which starts in Report-Only (flip to enforced = T6). */
+/** The CSP header for the given environment: ENFORCED everywhere.
+ * Production started in Report-Only (T2) and was flipped to enforced in T6
+ * once violations hit zero — since then every environment emits the same
+ * enforced key; only the directives vary (dev relaxations). */
 export function buildCspHeader(env: CspEnv): Header {
-  const key =
-    env === 'production'
-      ? 'Content-Security-Policy-Report-Only'
-      : 'Content-Security-Policy';
-  return { key, value: buildCspDirectives(env).join('; ') };
+  return {
+    key: 'Content-Security-Policy',
+    value: buildCspDirectives(env).join('; '),
+  };
 }
 
 /** Full header set consumed by `next.config.mjs`. */

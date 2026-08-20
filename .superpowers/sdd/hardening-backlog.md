@@ -1254,6 +1254,56 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       (`fileParallelism: false` + `isolate` default true → mutación
       confinada al archivo de test).
 
+## T6 Tanda B — minors de la doble review (no bloquean; registrados 2026-08-20)
+
+> Tanda B de T6 (flip CSP enforced en prod + form-action + COOP +
+> X-Powered-By off + I-3 cap/hash de key + I-8 P2025→404 + I-4 sweep;
+> brief congelado `t6-cierre-brief.md` @ `59f285c` §4 F4, decisiones
+> del triage en `t6-zap-report.md` §5). Carril spec: PASS WITH NOTES
+> (7 piezas fieles, cero scope-creep; la nota es el drift de crypto,
+> abajo). Carril quality: APPROVE WITH MINORS (cero MAJOR). M-3
+> RESUELTO inline en el fix pass de la tanda (re-review del carril
+> quality: PASS — sección "Fix pass M-3" de
+> `t6-tanda-b-review-quality.md`). Detalle completo en
+> `.superpowers/sdd/t6-tanda-b-review-{spec,quality}.md`.
+
+- [ ] (M-2 quality) **Race TOCTOU de PATCH puede devolver copy
+      `MAPPING_NOT_FOUND` donde aplicaría `PRODUCT_NOT_FOUND`**: si el
+      producto destino se borra mid-transacción, el P2025 del retarget
+      cae en la rama nueva P2025→404 con copy "No existe ese mapeo" en
+      vez de "Ese SKU no existe en tu catálogo"
+      (`app/api/portales/mappings/route.ts:159`). Status 4xx correcto
+      igual; probabilidad marginal. Registro sin acción.
+- [ ] (N-1) **Specifier bare `'crypto'` en `lib/rate-limit.ts`
+      INTENCIONAL** (no revertir a ciegas): el brief pedía
+      `node:crypto`, pero el módulo entra al bundle EDGE vía
+      `auth.ts` → `middleware.ts` y el webpack edge de Next 14 no
+      maneja el scheme `node:` (`UnhandledSchemeError` en build,
+      verificado empíricamente en la tanda). Mismo `createHash`, misma
+      API; costo residual: 1 warning de build no-bloqueante. Drift
+      SANCIONADO por Michael 2026-08-20 (precedente S-2 de T4:
+      desviación esencial reportada y sancionada). Trigger:
+      re-unificar a `node:crypto` cuando el edge layer de Next soporte
+      el scheme — verificar en el próximo bump de Next.
+- [ ] (residual del fix pass M-3, quality) **Fallas sweep-only del
+      step de I-4 quedan silenciosas**: con `continue-on-error: true`,
+      modos de falla que solo afectan al sweep (tabla `RateLimit`
+      renombrada por migración futura — es SQL raw, no pasa por
+      Prisma —, grant DELETE revocado, statement timeout) dejan el run
+      verde y solo anotan el step; nadie recibe email. Consecuencia
+      acotada: vuelve el crecimiento stale de I-4 (lento, idempotente
+      — el primer run sano recupera todo el atraso). Mitigación barata
+      candidata: `::warning::` explícito en fallo del sweep (próximo
+      touch de `backup.yml`).
+- [x] (M-3 quality) **[RESUELTO inline, fix pass Tanda B 2026-08-20]**
+      El step de sweep de `backup.yml` marcaba ROJO todo el workflow
+      si el DELETE fallaba, aunque el respaldo primario ya hubiera
+      subido — rompía la semántica "rojo = respaldo comprometido".
+      Fix: `continue-on-error: true` a nivel step + comment (incluye
+      el ajuste de wording del NIT de la re-review: distingue roturas
+      compartidas con el dump de los modos sweep-only). Re-review del
+      carril quality: PASS.
+
 ## Pendiente-por-archivo
 
 - [ ] **Code-skip §5.4 con archivo Amazon real** — ítem 5 del smoke de B4,

@@ -23,9 +23,11 @@ import { PrismaClient } from '@prisma/client';
 import { db as appDb } from '@/lib/db';
 import {
   consumeRateLimit,
+  normalizeKey,
   peekRateLimit,
   recordFailure,
   windowStartFor,
+  KEY_MAX_LEN,
 } from '@/lib/rate-limit';
 
 const db = new PrismaClient();
@@ -124,6 +126,46 @@ describe('recordFailure', () => {
     expect(
       await peekRateLimit({ scope: s, key: 'k', limit: 2, windowMs: WINDOW_MS }),
     ).toEqual({ allowed: false, count: 2 });
+  });
+});
+
+describe('normalizeKey (I-3, hardening T6)', () => {
+  it('BOUNDARY: a key of exactly KEY_MAX_LEN chars stays intact; one char more is hashed', () => {
+    const atLimit = 'a'.repeat(KEY_MAX_LEN); // 256
+    expect(normalizeKey(atLimit)).toBe(atLimit);
+
+    const overLimit = 'a'.repeat(KEY_MAX_LEN + 1); // 257
+    const hashed = normalizeKey(overLimit);
+    expect(hashed).not.toBe(overLimit);
+    // sha256 hex of the FULL key: 64 hex chars.
+    expect(hashed).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('DETERMINISM / NO-COLLISION: same long key → same hash; distinct long keys → distinct hashes', () => {
+    const longA = `login:email:${'a'.repeat(5000)}@evil.test`;
+    const longB = `login:email:${'b'.repeat(5000)}@evil.test`;
+
+    expect(normalizeKey(longA)).toBe(normalizeKey(longA));
+    expect(normalizeKey(longA)).not.toBe(normalizeKey(longB));
+  });
+
+  it('consume and peek agree on the same row for an oversized key (SQL sees 64 chars)', async () => {
+    const s = scope('longkey');
+    const longKey = `${'x'.repeat(5000)}@evil.test`;
+
+    const r = await consumeRateLimit({ scope: s, key: longKey, limit: 2, windowMs: WINDOW_MS });
+    expect(r).toEqual({ allowed: true, count: 1 });
+
+    // peek normalizes the SAME way — it reads the row consume wrote.
+    expect(
+      await peekRateLimit({ scope: s, key: longKey, limit: 2, windowMs: WINDOW_MS }),
+    ).toEqual({ allowed: true, count: 1 });
+
+    // The stored key is the sha256 hex, never the raw 5KB string.
+    const rows = await db.rateLimit.findMany({ where: { scope: s } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].key).toBe(normalizeKey(longKey));
+    expect(rows[0].key).toHaveLength(64);
   });
 });
 
