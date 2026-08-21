@@ -90,3 +90,25 @@ Formato: archivo — qué cierra — commit/PR asociado.
   request cacheado; causa del 0/0 del anclaje message-level viejo:
   desconocida, hipótesis refutadas), suite 479/49. Próximo task: T4
   ROBUSTEZ/OBSERVABILIDAD — primer commit de `feat/hardening-t4`.
+- `session-t4-close.md` — CIERRE DE T4 (PR #19 mergeado, main @
+  `9ef19a1`, 2026-08-15). El smoke amplió el ítem del eval del chunk 34
+  (violation real bajo enforced en error path de /analisis) — insumo
+  directo de T6. Próximo task: T5 COPY.
+  *(Entrada agregada retroactivamente en el cierre del bloque
+  2026-08-20 — el índice no se actualizó al cierre de T4.)*
+- `session-t5-close.md` — CIERRE DE T5 (PR #20 mergeado, main @
+  `b73c6e8`, 2026-08-17): barrido voseo→tuteo, gate UI con smoke
+  completo, suite 510/53. El smoke capturó dos violations más del
+  chunk 34 con DB sana (/dashboard y /analisis) — precondición dura del
+  flip identificada para T6. Próximo task: T6 CIERRE DEL BLOQUE.
+  *(Entrada agregada retroactivamente en el cierre del bloque
+  2026-08-20 — el índice no se actualizó al cierre de T5.)*
+- `session-t6-close.md` — CIERRE DE T6 Y DEL BLOQUE DE HARDENING
+  (PR #21 mergeado, main @ `538603f`, 2026-08-20): Tanda A jitless
+  (origen del eval = zod `allowsEval`), ZAP baseline (FAIL 0) + curl
+  del body limit (413 de plataforma, premisa E1 confirmada), triage F3
+  de 12 decisiones, Tanda B (flip CSP enforced en prod + form-action +
+  COOP + X-Powered-By off + I-3/I-4/I-8), flip VERIFICADO en prod
+  (header enforced, console limpia, csp-report en silencio). Suite
+  517/55. Criterios §4 del plan: los cuatro en verde. Plan faro
+  archivado. Próxima parada: Fase 2.5 (dominio onetable.mx primero).

@@ -197,6 +197,19 @@ responde en preview y prod).
 
 ### T6 — CIERRE DEL BLOQUE (CORTE punto 6)
 
+> **Estado: COMPLETADO 2026-08-20** — PR #21 mergeado a main
+> (`538603f`); gate cerrado por decisión de Michael con evidencia:
+> Tanda A jitless (`24f9793`, origen del eval = zod `allowsEval`,
+> precondición dura del flip cumplida) + F2 ZAP baseline (FAIL 0 /
+> WARN 11 / PASS 56) y curl del body limit (premisa E1 confirmada:
+> 413 de plataforma) con reporte triageado (`5383549`) + triage F3 de
+> 12 decisiones + Tanda B (`98a6e4e`: flip CSP enforced en prod,
+> form-action, COOP, X-Powered-By off, I-3, I-4, I-8) + verificación
+> del flip EN PROD (2026-08-20: header enforced con form-action via
+> curl, console limpia en navegación completa, csp-report en
+> silencio). Suite 517/55. Detalle:
+> `docs/handoff/session-t6-close.md`.
+
 **[CC — código]**
 - Correr ZAP baseline contra staging (docker local) y entregar reporte
   triageado.
@@ -212,10 +225,23 @@ responde en preview y prod).
 
 ## 4. Criterios de cierre del bloque
 
+> **BLOQUE CERRADO 2026-08-20 — los cuatro criterios en verde:**
+
 - T1-T6 completados o cortados explícitamente por Michael.
+  ✅ T1-T6 COMPLETADOS (PRs #15, #16, #17+#18, #19, #20, #21 — todos
+  mergeados a main con gate cerrado y evidencia por task).
 - ZAP baseline corrido y triageado.
+  ✅ Corrido 2026-08-18 contra la preview del PR #21 (FAIL 0 / WARN 11 /
+  PASS 56); 17 alertas triageadas fila por fila y 12 decisiones de
+  Michael en `t6-zap-report.md` §3/§5.
 - CSP de prod enforced.
+  ✅ Flip en Tanda B (`538603f`); verificado en prod 2026-08-20: header
+  `Content-Security-Policy` sin `-Report-Only`, console limpia,
+  csp-report en silencio.
 - Backlog re-anotado con lo que se movió de gate.
+  ✅ Pasada final T6 en `hardening-backlog.md` (sección "T6 — cierre
+  del bloque" + re-anotación de I-1..I-9, Q-5 T4 y cifra de suite
+  stale corregida).
 
 ---
 

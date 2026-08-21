@@ -79,7 +79,20 @@
    path. Identificar el origen del eval del chunk 34 es PRECONDICIÓN
    DURA del flip de T6. Puntero:
    `docs/handoff/session-t4-close.md` §4 y
-   `docs/handoff/session-t5-close.md` §3). Suite 461/49.
+   `docs/handoff/session-t5-close.md` §3).
+   **CERRADO en T6 (2026-08-20):** origen del eval del chunk 34
+   IDENTIFICADO = zod 4.3.6 `util.allowsEval` (probe `Function("")` de
+   feature-detection con catch; segundo eval-site `Doc.compile` gated
+   por el mismo probe) — cadena de evidencia re-corrible en
+   `t6-cierre-brief.md` §1.1. Fix: `z.config({jitless: true})`
+   incondicional (`lib/zod-jitless.ts`, primer import de
+   chat-panel.tsx) en Tanda A (`24f9793`). Verificado en preview
+   (smoke F1: console de /dashboard y /analisis sin violation de eval)
+   y en PROD post-flip (2026-08-20: navegación completa con console
+   limpia bajo filtro "Refused", csp-report en SILENCIO). La
+   precondición dura del flip quedó CUMPLIDA. Corrección de cifra
+   stale: el "Suite 461/49" que cerraba este ítem era de la era T2;
+   suite real al cierre del bloque: 517 tests / 55 archivos.
    Audit: 70 → 50 vulns (criticals accionables cerrados; restantes
    triageados en este ledger). Detalle:
    `docs/handoff/session-t2-close.md`.]** `next` 14.2.18 → 14.2.35 con protocolo supply-chain
@@ -91,7 +104,17 @@
    todos los entornos. CSP: enforced en staging/preview desde el inicio,
    report-only en producción, flip de prod a enforced en cuanto los smokes
    de staging estén limpios (prod no tiene usuarios reales hasta post-Fase
-   3 — decisión de Michael 2026-07-20). `session.maxAge` 24h + `updateAge`
+   3 — decisión de Michael 2026-07-20). **FLIP EJECUTADO Y VERIFICADO
+   EN PROD (T6 Tanda B `98a6e4e` → squash PR #21 `538603f`; verificación
+   de Michael 2026-08-20 ~19:49-19:55 CDMX):** curl a
+   https://onetable-gold.vercel.app/login → `Content-Security-Policy`
+   ENFORCED (sin `-Report-Only`) con `form-action 'self'`;
+   `cross-origin-opener-policy: same-origin` presente; `x-powered-by`
+   AUSENTE; navegación completa de prod (login, dashboard, /analisis
+   con chat streaming, /portales) con console limpia bajo filtro
+   "Refused"; Runtime Logs del csp-report en SILENCIO total durante la
+   sesión (señal leída con el caveat de autenticidad: la console del
+   smoke manda, el silencio corrobora). `session.maxAge` 24h + `updateAge`
    ~1h (logout por ~1 día de inactividad). Auth: dummy `bcrypt.compare`
    para email inexistente (timing) + rate limit de login por email/IP con
    contador en Postgres + password policy (mín 10 chars, cap 72 bytes por
@@ -329,7 +352,7 @@
       TAMAÑO por mensaje — un mensaje de megabytes pasa entero al modelo.
       Evaluar cap de bytes/chars por mensaje o por ventana cuando se haga
       el hardening del chat (junto con el rate limiting del ítem anterior).
-- [ ] (origen: filtro externo T5 v2, 2026-08-15) **Verificar
+- [x] (origen: filtro externo T5 v2, 2026-08-15) **Verificar
       alcanzabilidad real del cap per-file de 10MB de data/upload en
       deployed**: el límite de payload de las serverless functions de
       Vercel podría interceptar el request ANTES de que corra el cap de
@@ -345,7 +368,15 @@
       brief de T5 (premisa del paso 5b incompleta) — hallazgo del
       smoke; el brief queda frozen. Relacionado con el pre-check de
       Content-Length ya diferido a T6. Destino: T6 (solo el lado API,
-      si se triagea que vale).
+      si se triagea que vale). **CERRADO en T6 (curl F2 2026-08-18,
+      triage F3): INALCANZABLE en Vercel para clientes API** — POST
+      autenticado (bypass + cookie de smoke): 413
+      `FUNCTION_PAYLOAD_TOO_LARGE` de PLATAFORMA a 11MB Y a 5MB
+      (consistente con el límite documentado de 4.5MB); control de
+      10KB llegó al handler autenticado → el 413 no enmascara auth. El
+      cap server (`MAX_UPLOAD_FILE_BYTES`) queda como defensa en
+      profundidad para dev/self-host. Evidencia: `t6-zap-report.md`
+      §4.
 - [ ] (origen: filtro externo T5 v2, 2026-08-15) **Deuda UX del 401
       inline**: con sesión expirada, las secciones muestran el error como
       message crudo en vez de redirigir a login. T5 solo traduce el
@@ -883,6 +914,10 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
   grep del audit → 0 matches). Los 2 critical restantes son los de
   vitest (dev-only, grupo (a) de este triage). El único `@auth/core` del
   lockfile es 0.41.3 (patched, vía next-auth beta.32).
+  **Constatado al cierre T6 (2026-08-20): cero acción adicional** — el
+  "audit baseline limpio del critical de `@auth/core` antes de T6" que
+  pedía este triage quedó EJECUTADO en T2 Tanda B (párrafo anterior);
+  al cierre del bloque solo se deja constancia.
 
 ## T2 Tanda A — minors de la doble review (no bloquean; registrados 2026-08-03)
 
@@ -906,11 +941,20 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       materializa todo (acotado ~4.5MB por Vercel; sin cota dura en
       dev/self-host). Además `raw.length` cuenta UTF-16 code units, no bytes.
       Riesgo bajo; endurecer si duele.
-- [ ] **csp-report: sin rate limit ni autenticidad**
+- [x] **[PARCIALMENTE STALE — re-anotado al cierre T6, 2026-08-20]**
+      **csp-report: sin rate limit ni autenticidad**
       (`app/api/csp-report/route.ts`) — reportes forjables/floodeables con
       curl; la señal "cero violations" que alimenta la evidencia del flip de
       T6 es envenenable. Mitigación candidata: rate limit por IP con el
       limiter reusable (T3) + leer la evidencia de T6 con este caveat.
+      **Estado real:** el rate limit por IP EXISTE desde T3
+      (`app/api/csp-report/route.ts:20,59-66` — 60 reports/15min por IP,
+      consumo post-parse-guard, drop silencioso 204; constatado en F2,
+      `t6-zap-report.md`). Queda SOLO la autenticidad (reportes forjables
+      DENTRO del budget) como NOTA DE LECTURA PERMANENTE de la señal del
+      csp-report — no es código pendiente. Así se leyó la evidencia del
+      flip: console limpia del smoke manda; el silencio del csp-report
+      corrobora.
 - [x] **[RESUELTO por T5, PR #20 `b73c6e8`, 2026-08-17: OQ-2=(a) — copy
       del cliente → "La contraseña es demasiado larga. Usa una más
       corta." (sin número); message del server intacto (exacto en
@@ -951,13 +995,34 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       `file.size`; en Vercel el límite de body de la plataforma acota, en
       dev/self-host no. Comments corregidos en el fix pass de Tanda B;
       hardening candidato: pre-check de `Content-Length` antes de `formData()`.
-- [ ] **Sin cap de longitud en `key` del rate limiter** (`lib/rate-limit.ts`;
+      **Destino final (triage F3 de T6, 2026-08-20): a .2** — el curl
+      autenticado de F2 confirmó que la plataforma 413-ea
+      (`FUNCTION_PAYLOAD_TOO_LARGE`) a 5MB y 11MB ANTES del código de
+      la app; el pre-check solo aporta en dev/self-host. Evidencia:
+      `t6-zap-report.md` §4.
+- [x] **[RESUELTO en T6 Tanda B `98a6e4e` → squash PR #21 `538603f`,
+      2026-08-20]** `normalizeKey()` en `lib/rate-limit.ts` (key intacta
+      si ≤256 chars — `KEY_MAX_LEN` —, si no sha256 hex de la key
+      completa) aplicado en los 3 sitios SQL (`incrementWindow` cubre
+      consume y recordFailure; `peekRateLimit` el suyo); tests de
+      frontera 256/257, determinismo y no-colisión, más integración
+      consume/peek con key de 5KB.
+      **Sin cap de longitud en `key` del rate limiter** (`lib/rate-limit.ts`;
       `auth.ts` scope `login:email`) — un "email" de ~5KB excede el máximo de
       btree index row (~2.7KB) → el upsert lanza → fail-open silencioso del
       scope email para esas keys + ruido de logs (scope IP intacto).
       Candidato: truncar/hashear keys largas antes del SQL. **Agravado por
       csp-report público desde T3 (Q-6); destino T6.**
-- [ ] **Sin TTL/sweep global de filas stale** (`lib/rate-limit.ts`) — el
+- [x] **[RESUELTO en T6 Tanda B `98a6e4e` → squash PR #21 `538603f`,
+      2026-08-20]** Sweep diario piggyback en
+      `.github/workflows/backup.yml` (step post-dump/post-upload:
+      `DELETE FROM "RateLimit" WHERE "windowStart" < now() - interval
+      '7 days'` vía psql con `BACKUP_DATABASE_URL`;
+      `continue-on-error: true` — fix M-3, re-review PASS). PENDIENTE
+      OPERATIVO: primer run real = [MICHAEL] próximo cron diario o
+      `workflow_dispatch`; residual sweep-only registrado en la sección
+      "T6 Tanda B — minors".
+      **Sin TTL/sweep global de filas stale** (`lib/rate-limit.ts`) — el
       cleanup lazy solo borra ventanas viejas del MISMO (scope,key); keys
       one-shot (p.ej. barrido distribuido de muchas IPs) dejan filas
       permanentes — crecimiento sin cota en Neon Free tier. Candidato:
@@ -1043,7 +1108,7 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       `toLocaleTimeString('es-MX')` ya devuelve la hora con "p.m."
       (verificado 2026-08-13). Cosmético; a la pasada de copy de T5
       (chat-panel.tsx).
-- [ ] (Q-6 quality) **Propiedades heredadas del limiter T2 ahora expuestas
+- [x] (Q-6 quality) **Propiedades heredadas del limiter T2 ahora expuestas
       en endpoint SIN auth** (csp-report; no son defecto del diff de T3):
       (a) cada POST anónimo = un write a Neon — el limiter acota el
       LOGGING, no la carga de DB (flood distribuido = amplificación de
@@ -1054,7 +1119,13 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       declarado por el implementer, reporte §8.1). **Destino (cierre T3,
       2026-08-13): triage a más tardar en T6; candidato: sweep global
       piggyback en el workflow de backup** (cron diario ya existente,
-      cero infra nueva).
+      cero infra nueva). **CERRADO en el triage F3 de T6 (2026-08-20):
+      (b) RESUELTO por Tanda B `538603f` — cap/hash de key + sweep
+      diario piggyback (ítems de la sección T2 Tanda B, re-anotados);
+      (a) RIESGO ACEPTADO documentado + trigger (si el flood de writes
+      duele: WAF/edge, .2 — sin fix barato app-level); (c) ya declarado
+      (confiable en Vercel). Detalle y decisiones: `t6-zap-report.md`
+      §5.**
 - [ ] (Q-7 quality, tests) **Cap de 64KB sin test de frontera exacta** (el
       de 8000 sí tiene su par 8000/8001;
       `tests/ai/chat-route.test.ts:804-820` usa payload muy pasado):
@@ -1130,7 +1201,14 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       price-overrides PUT, no en el `deleteMany`** — narrowing correcto:
       borrar filas de override no puede violar la FK de `productId` (peor
       caso: 0 filas borradas). Comment en el código.
-- [ ] (Q-1 quality) **Race de doble-DELETE/PATCH de mappings: P2025 pasó
+- [x] (Q-1 quality) **[RESUELTO en T6 Tanda B `98a6e4e` → squash PR #21
+      `538603f`, 2026-08-20]** Rama `Prisma.PrismaClientKnownRequestError`
+      con code P2025 → 404 `MAPPING_NOT_FOUND` en AMBOS catches
+      (`app/api/portales/mappings/route.ts:103,159`) + test nuevo
+      `tests/api/mappings-p2025.test.ts` (DELETE 404, PATCH 404, y
+      estrechez: P2002 sigue → 500). Residual M-2 (copy en race de
+      PATCH) registrado en la sección "T6 Tanda B — minors".
+      **Race de doble-DELETE/PATCH de mappings: P2025 pasó
       de 404 accidental a 500 INTERNAL + log** — dos DELETE del mismo mapeo
       en paralelo (doble click): ambos pasan el `findFirst`, T1 borra, el
       `delete` de T2 lanza P2025 ("...required but not found"), que el
@@ -1162,12 +1240,17 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       actual lo produce; un try/catch de una línea alrededor del stringify
       hace la red incondicional. Destino: próximo touch de
       lib/route-errors.ts.
-- [ ] (Q-5 quality) **Dos códigos públicos para el mismo semántico:**
+- [x] (Q-5 quality) **Dos códigos públicos para el mismo semántico:**
       `INTERNAL` (wrapper, `lib/route-errors.ts:137`) vs `INTERNAL_ERROR`
       (catches internos pre-existentes de signup `route.ts:92`, data/reset,
       skus). Hoy ningún client branchea sobre ninguno de los dos. DECIDIR
       ANTES de construir el agente de triage post-bloque — agruparía una
-      misma condición en dos buckets.
+      misma condición en dos buckets. **DECIDIDO en el triage F3 de T6
+      (Michael, 2026-08-18): `INTERNAL` RATIFICADO como código
+      canónico.** Cero cambio de código ahora ni al próximo touch — los
+      `INTERNAL_ERROR` pre-existentes quedan como están. Instrucción
+      para el agente de triage post-bloque: agrupar ambos códigos como
+      el MISMO semántico, con `INTERNAL` como canónico.
 - [ ] (Q-6 quality) **Branch `Array.isArray` del guard de body sin test**
       (`tests/api/body-guards.test.ts:39-42` — CASES solo cubre `null` y
       string): borrar ese branch del guard dejaría la suite verde. Agregar
@@ -1303,6 +1386,44 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       el ajuste de wording del NIT de la re-review: distingue roturas
       compartidas con el dump de los modos sweep-only). Re-review del
       carril quality: PASS.
+
+## T6 — cierre del bloque (registrado 2026-08-20)
+
+> F5 del brief congelado `t6-cierre-brief.md`. El bloque de HARDENING
+> cierra con T1-T6 completados (PRs #15-#21) y los 4 criterios del
+> plan §4 en verde. Esta sección centraliza los destinos finales del
+> triage F3 (los hallazgos ZAP no tenían ítem propio en este ledger) y
+> la evidencia del flip; el detalle por hallazgo vive en
+> `t6-zap-report.md` §3/§5 (commiteado, `5383549`).
+
+- **Flip de CSP de prod a ENFORCED: EJECUTADO y VERIFICADO** (Tanda B
+  `98a6e4e` → squash PR #21 `538603f`; verificación de Michael
+  2026-08-20 ~19:49-19:55 CDMX): curl a prod `/login` →
+  `Content-Security-Policy` sin `-Report-Only` con `form-action 'self'`;
+  COOP `same-origin` presente; `x-powered-by` ausente; navegación
+  completa (login, dashboard, /analisis con chat streaming, /portales)
+  con console limpia bajo filtro "Refused"; csp-report en silencio.
+- **Destinos finales del triage F3** (decisiones de Michael 2026-08-18
+  sobre `t6-zap-report.md` §5):
+  - Z-1 (`form-action`), Z-7 (COOP), Z-8 (`X-Powered-By`), I-3
+    (cap/hash de key), I-4 (sweep), I-8 (P2025→404): **FIX-AHORA
+    ejecutados en Tanda B `538603f`** (ítems originales re-anotados en
+    sus secciones).
+  - Z-4 (`ACAO: *` de plataforma en superficie pública): **RIESGO
+    ACEPTADO** — trigger: re-mirar en Fase 2.5 si aparece contenido
+    sensible pre-login.
+  - I-5(a) (writes anónimos del csp-report a Neon): **RIESGO
+    ACEPTADO** — trigger: si el flood duele, WAF/edge (.2).
+  - I-6 (pre-check Content-Length): **a .2** (plataforma 413-ea antes
+    de la app; residual solo dev/self-host).
+  - I-7 (cap per-file lado API): **CERRADO — inalcanzable en Vercel**
+    para clientes API (curl F2).
+  - Q-5 de T4: **DECIDIDO — `INTERNAL` canónico**, cero código.
+  - Z-5 (report-uri deprecado), Z-6 (COEP), Z-9..Z-15 (artefactos del
+    spider e informativos): **DESCARTADOS** — análisis por fila en
+    `t6-zap-report.md` §3.
+- **Alcance declarado del scan:** baseline pasivo = superficie
+  pre-login; páginas autenticadas FUERA (declarado en el reporte §2).
 
 ## Pendiente-por-archivo
 
