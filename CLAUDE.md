@@ -56,9 +56,9 @@ DB: proyecto Neon `quiet-dawn-60852807` (integración Vercel↔Neon, Postgres 17
 
 **El mapa completo de docs/ (qué manda, qué es historia, cómo transita) vive en `docs/README.md`.**
 
-**Autoritativo para el bloque actual (hardening):**
+**Del bloque de hardening (CERRADO 2026-08-20, T1-T6 completados, PRs #15-#21, flip de CSP verificado en prod):**
 
-1. `docs/specs/onetable-hardening-plan.md` — documento faro del bloque: manda en SCOPE, ORDEN y OWNERSHIP de los tasks (T1-T6, split [CC]/[MICHAEL], gates).
+1. `docs/archive/hardening/onetable-hardening-plan.md` — documento faro del bloque (ARCHIVADO al cierre; T1-T6 marcados con evidencia). Se consulta para el "por qué"; el handoff de cierre es `docs/handoff/session-t6-close.md`. Próxima parada declarada: Fase 2.5 (landing + cuentas).
 2. `.superpowers/sdd/hardening-backlog.md` — inventario de deuda + corte de scope (working doc tracked vía `git add -f`); manda en DETALLE FINO y evidencia por ítem. Ante divergencia de scope con el plan, el plan gana.
 3. `docs/specs/onetable-fase3-spec-draft.md` — diseño congelado de items diferidos a Fase 3 (AES-GCM credenciales, arquitectura de scrapers, multi-marca eventual, build de forecasting si llega tarde).
 
@@ -260,7 +260,7 @@ grep -E "tanstack|squawk|uipath|mistral|cap-js|intercom-client|router_init|setup
 1. Leer este `CLAUDE.md` (auto).
 2. `git log --oneline main..HEAD | head -15` para ver estado de commits desde main.
 3. Leer el handoff más reciente en `docs/handoff/` (índice en su README).
-4. **Identificar el próximo task contra `docs/specs/onetable-hardening-plan.md`** (roadmap T1-T6; el detalle fino por ítem vive en `.superpowers/sdd/hardening-backlog.md` §CORTE DE SCOPE).
+4. **Identificar el próximo task** — el bloque de hardening está CERRADO (2026-08-20; plan archivado en `docs/archive/hardening/onetable-hardening-plan.md`): la próxima parada es **Fase 2.5** (landing + cuentas; primera tarea = integración del dominio onetable.mx). El detalle de deuda viva sigue en `.superpowers/sdd/hardening-backlog.md` (ledger, no archivado).
 5. Confirmar con el usuario antes de dispatchear el primer implementer.
 
 ---

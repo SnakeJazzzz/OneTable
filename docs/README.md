@@ -20,7 +20,6 @@ quedó vacía en B-4 al archivarse todo su contenido y muere con ese commit.)
 
 | Archivo | Qué es | Cuándo se consulta |
 |---|---|---|
-| `specs/onetable-hardening-plan.md` | Documento faro del bloque de hardening: scope, orden y ownership de T1-T6. Ante divergencia de scope con el backlog, el plan gana. | Al arrancar sesión o identificar el próximo task del bloque. |
 | `specs/onetable-fase3-spec-draft.md` | Diseño congelado de lo diferido a Fase 3 (AES-GCM, arquitectura de scrapers, multi-marca, forecasting). | Al evaluar si algo "va ahora o va a Fase 3". |
 | `specs/viks-data/README.md` | Particularidades de los archivos reales de cada portal (parsers). | Al tocar parsers o depurar un archivo de VIKS. |
 | `adr/ADR-001-branch-protection-off-during-setup.md` | Por qué branch protection estuvo OFF durante el setup (hoy está ON). | Arqueología de decisiones. |
@@ -37,6 +36,12 @@ quedó vacía en B-4 al archivarse todo su contenido y muere con ese commit.)
 - `archive/fase2-bloques/` — planes y design docs de bloques de Fase 2 ya
   ejecutados (B0 plan+design, B1, B2, B3, B4; B5 no tuvo plan en docs/,
   sus briefs viven en `.superpowers/sdd/`).
+- `archive/hardening/` — plan faro del bloque de HARDENING (cerrado
+  2026-08-20, T1-T6 completados, PRs #15-#21; flip de CSP de prod a
+  enforced verificado). Los briefs/reportes/reviews del bloque viven en
+  `.superpowers/sdd/`; el ledger (`hardening-backlog.md`) NO se archiva
+  — sigue VIVO para "hardening .2" y Fase 2.5. Handoff de cierre:
+  `handoff/session-t6-close.md`.
 - `handoff/` — todos los handoffs de sesión (ver su README).
 
 ## Regla de tránsito
