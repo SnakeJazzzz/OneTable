@@ -26,6 +26,14 @@
  * chat quota — the limit is a PARAMETER, never hardcoded here.
  */
 
+// Bare 'crypto' specifier ON PURPOSE (not 'node:crypto'): this module is
+// pulled into the EDGE bundle via auth.ts → middleware.ts, and Next 14's
+// edge webpack layer cannot parse the `node:` scheme (UnhandledSchemeError
+// at build — verified empirically, T6 Tanda B). The bare builtin compiles
+// there and the call only ever EXECUTES in the Node runtime (authorize /
+// route handlers) — the middleware wrapper just decodes the JWT.
+import { createHash } from 'crypto';
+
 import { db } from './db';
 
 export type RateLimitParams = {
@@ -56,6 +64,28 @@ export const AUTH_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 export const LOGIN_EMAIL_LIMIT = 5;
 export const AUTH_IP_LIMIT = 20;
 
+/**
+ * Max key length accepted verbatim (I-3, hardening T6). Some keys are
+ * attacker-influenced — `login:email` takes the submitted email, and a ~5KB
+ * "email" as a SQL parameter can make the upsert fail → silent FAIL-OPEN of
+ * that scope. 256 comfortably covers every legitimate key (emails, IPs)
+ * while capping what reaches SQL.
+ */
+export const KEY_MAX_LEN = 256;
+
+/**
+ * Normalize a limiter key before it reaches SQL (I-3): a key of length
+ * ≤ KEY_MAX_LEN passes through INTACT; a longer key is replaced by the
+ * sha256 hex (64 chars) of the FULL key. Deterministic, so peek / consume /
+ * recordFailure always land on the same row for the same oversized key.
+ * Applied inside the two SQL entry points (incrementWindow, peekRateLimit)
+ * so no caller can bypass it.
+ */
+export function normalizeKey(key: string): string {
+  if (key.length <= KEY_MAX_LEN) return key;
+  return createHash('sha256').update(key).digest('hex');
+}
+
 /** Compute the fixed, boundary-aligned start of the current window. */
 export function windowStartFor(windowMs: number, now: number = Date.now()): Date {
   return new Date(Math.floor(now / windowMs) * windowMs);
@@ -84,9 +114,10 @@ function logFailOpen(op: string, scope: string, err: unknown): void {
  */
 async function incrementWindow(
   scope: string,
-  key: string,
+  rawKey: string,
   windowMs: number,
 ): Promise<number> {
+  const key = normalizeKey(rawKey); // I-3: cap/hash before SQL
   const windowStart = windowStartFor(windowMs);
   const rows = await db.$queryRaw<Array<{ count: number }>>`
     WITH cleanup AS (
@@ -131,10 +162,11 @@ export async function consumeRateLimit({
  */
 export async function peekRateLimit({
   scope,
-  key,
+  key: rawKey,
   limit,
   windowMs,
 }: RateLimitParams): Promise<RateLimitResult> {
+  const key = normalizeKey(rawKey); // I-3: same normalization as incrementWindow
   const windowStart = windowStartFor(windowMs);
   try {
     const rows = await db.$queryRaw<Array<{ count: number }>>`

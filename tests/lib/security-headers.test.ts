@@ -20,7 +20,7 @@ describe('resolveCspEnv', () => {
 });
 
 describe('buildAlwaysEnforcedHeaders', () => {
-  it('returns the four always-enforced headers (T2 §2.2)', () => {
+  it('returns the five always-enforced headers (T2 §2.2 + COOP from T6)', () => {
     const headers = buildAlwaysEnforcedHeaders();
     const byKey = Object.fromEntries(headers.map((h) => [h.key, h.value]));
     expect(byKey['X-Content-Type-Options']).toBe('nosniff');
@@ -29,15 +29,16 @@ describe('buildAlwaysEnforcedHeaders', () => {
     expect(byKey['Permissions-Policy']).toBe(
       'camera=(), microphone=(), geolocation=()',
     );
-    expect(headers).toHaveLength(4);
+    // T6 (ZAP Z-7): COOP same-origin. COEP stays out (Z-6 discarded).
+    expect(byKey['Cross-Origin-Opener-Policy']).toBe('same-origin');
+    expect(byKey['Cross-Origin-Embedder-Policy']).toBeUndefined();
+    expect(headers).toHaveLength(5);
   });
 });
 
 describe('buildCspHeader', () => {
-  it('production emits Report-Only (flip to enforced is T6)', () => {
-    expect(buildCspHeader('production').key).toBe(
-      'Content-Security-Policy-Report-Only',
-    );
+  it('production emits the ENFORCED header (flipped in T6; Report-Only was T2..T5)', () => {
+    expect(buildCspHeader('production').key).toBe('Content-Security-Policy');
   });
 
   it('preview emits the ENFORCED header', () => {
@@ -66,6 +67,8 @@ describe('buildCspDirectives', () => {
       expect(d).toContain("frame-ancestors 'none'");
       expect(d).toContain("object-src 'none'");
       expect(d).toContain("base-uri 'self'");
+      // T6 (ZAP Z-1): form-action does not fall back to default-src.
+      expect(d).toContain("form-action 'self'");
       expect(d).toContain('report-uri /api/csp-report');
     }
   });
@@ -85,6 +88,7 @@ describe('buildCspDirectives', () => {
     // Everything else stays identical to the strict baseline.
     expect(d).toContain("default-src 'self'");
     expect(d).toContain("frame-ancestors 'none'");
+    expect(d).toContain("form-action 'self'");
     expect(d).toContain('report-uri /api/csp-report');
   });
 });
@@ -93,14 +97,17 @@ describe('buildSecurityHeaders', () => {
   it('always-enforced set + one CSP header, in every environment', () => {
     for (const env of ['development', 'preview', 'production'] as const) {
       const headers = buildSecurityHeaders(env);
-      expect(headers).toHaveLength(5);
+      expect(headers).toHaveLength(6);
       const keys = headers.map((h) => h.key);
       expect(keys).toContain('X-Content-Type-Options');
       expect(keys).toContain('X-Frame-Options');
       expect(keys).toContain('Referrer-Policy');
       expect(keys).toContain('Permissions-Policy');
+      expect(keys).toContain('Cross-Origin-Opener-Policy');
       const cspKeys = keys.filter((k) => k.startsWith('Content-Security-Policy'));
       expect(cspKeys).toHaveLength(1);
+      // Post-T6 flip: the one CSP header is the ENFORCED key everywhere.
+      expect(cspKeys[0]).toBe('Content-Security-Policy');
     }
   });
 });

@@ -68,10 +68,18 @@
    Misma familia: el eval de vendor también es alcanzable desde
    /analisis bajo error path con CSP enforced. Antes del flip de prod a
    enforced en T6: identificar el origen del eval (¿recharts u otro
-   vendor de /analisis?) y decidir fix vs riesgo aceptado. Pregunta
-   abierta: no se verificó si el eval también dispara en /analisis con
-   DB sana — el e2e no lo midió. Puntero:
-   `docs/handoff/session-t4-close.md` §4). Suite 461/49.
+   vendor de /analisis?) y decidir fix vs riesgo aceptado.
+   **AMPLIADO por el smoke de T5 (bonus, 2026-08-17):** dos violations
+   REALES de eval con DB SANA en navegación normal, capturadas por
+   csp-report con disposition enforce — `/dashboard`
+   2026-08-17T06:04:40Z y `/analisis` 06:52:36Z, MISMO chunk
+   `34-09a2e5143d5aa06c.js:16:36104`. Páginas funcionales pese al
+   bloqueo. La pregunta abierta de T4 ("¿dispara con DB sana?") queda
+   RESPONDIDA: SÍ, y también en /dashboard — no es exclusivo del error
+   path. Identificar el origen del eval del chunk 34 es PRECONDICIÓN
+   DURA del flip de T6. Puntero:
+   `docs/handoff/session-t4-close.md` §4 y
+   `docs/handoff/session-t5-close.md` §3). Suite 461/49.
    Audit: 70 → 50 vulns (criticals accionables cerrados; restantes
    triageados en este ledger). Detalle:
    `docs/handoff/session-t2-close.md`.]** `next` 14.2.18 → 14.2.35 con protocolo supply-chain
@@ -153,7 +161,12 @@
    estructurados con contexto en el error path.
 
 5. **COPY.** Barrido voseo → tuteo (greps de este backlog, re-verificar
-   al ejecutar).
+   al ejecutar). **RESUELTO por T5 (PR #20, squash `b73c6e8`,
+   2026-08-17):** barrido 23 hits / 15 archivos + Q-1/Q-2/Q-3 de T3 en
+   chat-panel (400 con limpieza de historial, hora por error,
+   announcer) + política de idioma por audiencia (OQ-1=A) + copy de
+   signup (OQ-2=a). Gate UI cerrado con smoke completo de Michael.
+   Detalle: `docs/handoff/session-t5-close.md`.
 
 6. **CIERRE DEL BLOQUE.** Scanner baseline (OWASP ZAP) contra staging +
    triage de hallazgos con Michael (fix inmediato vs "hardening .2") +
@@ -320,9 +333,19 @@
       alcanzabilidad real del cap per-file de 10MB de data/upload en
       deployed**: el límite de payload de las serverless functions de
       Vercel podría interceptar el request ANTES de que corra el cap de
-      la app (evidencia a capturar en el smoke de T5, paso 5b opcional).
-      Relacionado con el pre-check de Content-Length ya diferido a T6.
-      Destino: T6.
+      la app. **ACTUALIZADO por el smoke de T5 (paso 5b, 2026-08-17):
+      RESPONDIDO para la UI** — existe una validación CLIENT-SIDE en el
+      dropzone que corta a los 10MB ANTES de cualquier request
+      (evidencia: mensaje client-side "Tamaño máximo 10 MB (recibido
+      11.0 MB)", CERO POST en los logs de Vercel). Cap del server y
+      límite de plataforma son INALCANZABLES desde la UI; la pregunta
+      plataforma-vs-app queda abierta SOLO para clientes API (baja
+      prioridad; medible con curl autenticado si se necesita). Nota de
+      auditoría: el gate client-side NO estaba en el inventario del
+      brief de T5 (premisa del paso 5b incompleta) — hallazgo del
+      smoke; el brief queda frozen. Relacionado con el pre-check de
+      Content-Length ya diferido a T6. Destino: T6 (solo el lado API,
+      si se triagea que vale).
 - [ ] (origen: filtro externo T5 v2, 2026-08-15) **Deuda UX del 401
       inline**: con sesión expirada, las secciones muestran el error como
       message crudo en vez de redirigir a login. T5 solo traduce el
@@ -400,9 +423,21 @@
       server-side + comparación mensual por SKU. Pregunta de producto,
       NO bug.
 
-- [ ] (origen: decisión de Michael 2026-07-16, review externa del diff
+- [x] (origen: decisión de Michael 2026-07-16, review externa del diff
       ESTRICTA de T3 B5 / O1 del carril spec) **Pasada de copy es-MX
       pre-lanzamiento: voseo → tuteo mexicano en TODO el copy de producto.**
+      **RESUELTO por T5 (PR #20, squash `b73c6e8`, 2026-08-17):**
+      barrido completo — el inventario real al ejecutar fue 23 hits
+      accionables en 15 archivos (la lista de abajo, de 2026-07-16,
+      había quedado corta y con líneas corridas; inventario definitivo
+      en el brief frozen `.superpowers/sdd/t5-copy-brief.md` §1.1).
+      Cierre verificado con 3 greps (dirigido + tilde final + presente
+      -ás/-és/-ís). El idioma de la familia per-file de upload quedó
+      resuelto por la política por audiencia (OQ-1=A): per-file +
+      ALL_FILES_FAILED + PRODUCT_NOT_FOUND + UNAUTHORIZED de
+      auth-helpers → español tuteo; plumbing dev-facing declarado en
+      inglés (brief §4.4). Gate UI cerrado con smoke de Michael.
+      Registro histórico de la lista original:
       Regla nueva del proyecto: todo el copy en español mexicano (tuteo).
       El copy nuevo de T3 (chat-panel, forecast-card, secciones de Análisis)
       ya se corrigió en T3 mismo. Voseo PRE-EXISTENTE detectado por grep
@@ -425,6 +460,20 @@
       convención local — la pasada de T5 decide idioma de TODA esa
       familia, no solo tuteo). (Observación del filtro externo,
       2026-08-10.)
+
+- [ ] (origen: smoke T5, 2026-08-17) **Parse leniente de archivos
+      no-xlsx en upload**: SheetJS lee texto plano vía fallback CSV →
+      workbook con 0 filas → pipeline exitoso → la UI muestra
+      "Procesado / Total 0" en VERDE para un archivo basura (verificado
+      en el smoke con .txt renombrado a .xlsx en los slots soriana y
+      amazon). PRE-EXISTENTE (mismo mecanismo que documenta el test del
+      boundary de 10MB). Consecuencia: `ALL_FILES_FAILED` solo es
+      alcanzable desde la UI con archivos que hagan LANZAR a SheetJS
+      (p.ej. firma ZIP corrupta) — por eso el paso 4 del smoke de T5 no
+      lo ejercitó (el string español tiene cobertura automatizada en la
+      suite). Candidato: validación de contenido mínimo (headers
+      esperados) o aviso "0 filas procesadas" no-verde. Destino: triage
+      pre-Fundadores / hardening .2 — decide Michael.
 
 - [ ] (origen: smoke T3 B5, hallazgo de producto, 2026-07-16) **El chatbot
       INVENTA cantidades cuando se le piden recomendaciones.** Observado en
@@ -862,7 +911,11 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       curl; la señal "cero violations" que alimenta la evidencia del flip de
       T6 es envenenable. Mitigación candidata: rate limit por IP con el
       limiter reusable (T3) + leer la evidencia de T6 con este caveat.
-- [ ] **Copy signup "máximo 72 caracteres" vs server 72 BYTES**
+- [x] **[RESUELTO por T5, PR #20 `b73c6e8`, 2026-08-17: OQ-2=(a) — copy
+      del cliente → "La contraseña es demasiado larga. Usa una más
+      corta." (sin número); message del server intacto (exacto en
+      bytes, dev-facing).]**
+      **Copy signup "máximo 72 caracteres" vs server 72 BYTES**
       (`app/(auth)/signup/page.tsx:25`, ERROR_COPY) — el mensaje es impreciso
       justo en los casos multibyte que lo disparan. Ajustar en la pasada de
       copy (T5) o próximo touch de la página. (Levantado por AMBOS carriles.)
@@ -931,7 +984,11 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       más allá de la letra de §4.4 del brief, coherente con la intención
       (retry contra cuota diaria re-falla seguro). Desviación declarada por
       el implementer, aceptada por el carril spec.
-- [ ] (Q-1 quality) **El panel no maneja el 400 `MESSAGE_TOO_LONG` nuevo**:
+- [x] **[RESUELTO por T5, PR #20 `b73c6e8`, 2026-08-17: `errorCodeOf`
+      local + copy específico sin Reintentar + limpieza del historial
+      envenenado con restauración al input (E2 del brief). 4 minors
+      nuevos de la doble review de T5 registrados en su sección.]**
+      (Q-1 quality) **El panel no maneja el 400 `MESSAGE_TOO_LONG` nuevo**:
       un usuario legítimo que pega >8000 chars cae en copy genérico +
       "Reintentar" que re-falla determinísticamente
       (`chat-panel.tsx:162-179`; el 400 nace en
@@ -941,7 +998,9 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       Destino: próximo touch de chat-panel.tsx (T4 error boundaries o T5
       copy, lo que llegue primero) — decisión de Michael vía filtro,
       2026-08-11.
-- [ ] (Q-2 quality) **Copy de reset de cuota invertido tras cruzar la
+- [x] **[RESUELTO por T5, PR #20 `b73c6e8`, 2026-08-17: hora capturada
+      una vez por objeto de error vía `useMemo(..., [error])`.]**
+      (Q-2 quality) **Copy de reset de cuota invertido tras cruzar la
       medianoche UTC**: `quotaResetLocalTime()` se recalcula por render
       (`chat-panel.tsx:49-58,169`) — con el 429 montado, al cruzar la
       frontera el copy salta a +24h justo cuando la cuota ACABA de
@@ -950,7 +1009,10 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       Destino: próximo touch de chat-panel.tsx (T4 error boundaries o T5
       copy, lo que llegue primero) — decisión de Michael vía filtro,
       2026-08-11.
-- [ ] (Q-3 quality) **a11y: el announcer `aria-live` nunca comunica el copy
+- [x] **[RESUELTO por T5, PR #20 `b73c6e8`, 2026-08-17: announcer
+      ramificado con `errorCodeOf`, simétrico al render visual (429 con
+      hora / 400 / genérico).]**
+      (Q-3 quality) **a11y: el announcer `aria-live` nunca comunica el copy
       de cuota** (`chat-panel.tsx:184-192`) — screen reader solo oye el
       genérico "Ocurrió un error", sin causa ni hora de reset. Ramificar
       con `isRateLimitError`, simétrico al render visual.
@@ -964,11 +1026,18 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       completo antes de los caps, y los mensajes descartados por el trim
       nunca se miden. Emparenta con el ítem de Content-Length de
       upload/import (T2 Tanda B, arriba).
-- [ ] (Q-5 quality) **Mensaje del 429 en español vs convención inglesa** de
+- [x] **[CERRADA por T5, PR #20 `b73c6e8`, 2026-08-17: política por
+      audiencia (OQ-1=A) — el message del 429 pasó a inglés ("Daily
+      chat quota exceeded"), dev-facing; el copy español vive en el
+      panel que branchea por code.]**
+      (Q-5 quality) **Mensaje del 429 en español vs convención inglesa** de
       los `errorResponse` de la misma ruta (`route.ts:284-288`). Cero
       impacto (el panel detecta por `code`); alinear en T5 junto con la
       decisión de idioma de la familia de errores per-file de upload.
-- [ ] (smoke T3, copy, 2026-08-12 → T5) **El copy del 429 en el panel
+- [x] **[CERRADO por T5, PR #20 `b73c6e8`, 2026-08-17: punto del JSX
+      removido; verificado en el smoke (paso 5: "6:00 p.m." sin doble
+      punto).]**
+      (smoke T3, copy, 2026-08-12 → T5) **El copy del 429 en el panel
       termina en punto doble** ("...6:00 p.m..") — el JSX cierra con "."
       tras `{quotaResetLocalTime()}` (`chat-panel.tsx:168-169`) y
       `toLocaleTimeString('es-MX')` ya devuelve la hora con "p.m."
@@ -1149,6 +1218,91 @@ vs. nueva (2026-08-03). Audit pre-bump: 70 vulns (7c/31h/28m/4l); post-bump:
       "una vez por objeto de error"** per React docs (puede recomputar);
       nota de robustez sin acción requerida — el guard real del efecto
       de limpieza es `handledErrorRef`, no el memo.
+
+## T6 Tanda A — minors de la doble review (no bloquean; registrados 2026-08-18)
+
+> Tanda A de T6 (fix jitless de zod — eval del chunk 34; brief congelado
+> `t6-cierre-brief.md` @ `59f285c`, §4 F0). Carril spec: PASS limpio
+> (12 ítems COMPLIANT). Carril quality: APPROVE WITH MINORS (cero
+> MAJOR, 3 MINOR). Q-2/Q-3 RESUELTOS inline en el fix pass de la tanda
+> (re-review del carril quality: PASS — sección "Fix pass Q-2/Q-3" de
+> `t6-tanda-a-review-quality.md`). Detalle completo en
+> `.superpowers/sdd/t6-tanda-a-review-{spec,quality}.md`.
+
+- [ ] (Q-1 quality) **Protección de un solo punto del jitless**
+      (`lib/zod-jitless.ts` importado SOLO desde
+      `components/analisis/chat-panel.tsx:29`): cualquier client
+      component futuro que importe zod sin pasar por chat-panel
+      (probable en Fase 2.5 — forms) reintroduce la violation CSP del
+      probe `allowsEval` en silencio. Candidato: guard eslint
+      `no-restricted-imports` sobre `zod` en `components/**` con
+      mensaje apuntando al patrón zod-jitless. Destino: Fase 2.5 /
+      próximo touch de la config de eslint.
+- [ ] (nit del assert, quality) **`z.config().jitless` como alternativa
+      marginalmente más estable** que `z.core.globalConfig.jitless` en
+      el assert de `tests/lib/zod-jitless.test.ts` (getter público de
+      lectura vs objeto interno). Sin acción — registro.
+- [x] (Q-2 quality) **[RESUELTO inline, fix pass Tanda A 2026-08-18]**
+      El comment de `lib/zod-jitless.ts` afirmaba jitless server-side
+      garantizado ("the chat tools parse without JIT") cuando el API
+      route del chat no importa el módulo; reformulado a "aplica donde
+      ESTE módulo evalúa (client bundle + pase SSR de /analisis); el
+      route conserva su default propio".
+- [x] (Q-3 quality) **[RESUELTO inline, fix pass Tanda A 2026-08-18]**
+      El NOTE del test sobrestimaba el leak de estado global
+      ("process-wide"); corregido al aislamiento real de la suite
+      (`fileParallelism: false` + `isolate` default true → mutación
+      confinada al archivo de test).
+
+## T6 Tanda B — minors de la doble review (no bloquean; registrados 2026-08-20)
+
+> Tanda B de T6 (flip CSP enforced en prod + form-action + COOP +
+> X-Powered-By off + I-3 cap/hash de key + I-8 P2025→404 + I-4 sweep;
+> brief congelado `t6-cierre-brief.md` @ `59f285c` §4 F4, decisiones
+> del triage en `t6-zap-report.md` §5). Carril spec: PASS WITH NOTES
+> (7 piezas fieles, cero scope-creep; la nota es el drift de crypto,
+> abajo). Carril quality: APPROVE WITH MINORS (cero MAJOR). M-3
+> RESUELTO inline en el fix pass de la tanda (re-review del carril
+> quality: PASS — sección "Fix pass M-3" de
+> `t6-tanda-b-review-quality.md`). Detalle completo en
+> `.superpowers/sdd/t6-tanda-b-review-{spec,quality}.md`.
+
+- [ ] (M-2 quality) **Race TOCTOU de PATCH puede devolver copy
+      `MAPPING_NOT_FOUND` donde aplicaría `PRODUCT_NOT_FOUND`**: si el
+      producto destino se borra mid-transacción, el P2025 del retarget
+      cae en la rama nueva P2025→404 con copy "No existe ese mapeo" en
+      vez de "Ese SKU no existe en tu catálogo"
+      (`app/api/portales/mappings/route.ts:159`). Status 4xx correcto
+      igual; probabilidad marginal. Registro sin acción.
+- [ ] (N-1) **Specifier bare `'crypto'` en `lib/rate-limit.ts`
+      INTENCIONAL** (no revertir a ciegas): el brief pedía
+      `node:crypto`, pero el módulo entra al bundle EDGE vía
+      `auth.ts` → `middleware.ts` y el webpack edge de Next 14 no
+      maneja el scheme `node:` (`UnhandledSchemeError` en build,
+      verificado empíricamente en la tanda). Mismo `createHash`, misma
+      API; costo residual: 1 warning de build no-bloqueante. Drift
+      SANCIONADO por Michael 2026-08-20 (precedente S-2 de T4:
+      desviación esencial reportada y sancionada). Trigger:
+      re-unificar a `node:crypto` cuando el edge layer de Next soporte
+      el scheme — verificar en el próximo bump de Next.
+- [ ] (residual del fix pass M-3, quality) **Fallas sweep-only del
+      step de I-4 quedan silenciosas**: con `continue-on-error: true`,
+      modos de falla que solo afectan al sweep (tabla `RateLimit`
+      renombrada por migración futura — es SQL raw, no pasa por
+      Prisma —, grant DELETE revocado, statement timeout) dejan el run
+      verde y solo anotan el step; nadie recibe email. Consecuencia
+      acotada: vuelve el crecimiento stale de I-4 (lento, idempotente
+      — el primer run sano recupera todo el atraso). Mitigación barata
+      candidata: `::warning::` explícito en fallo del sweep (próximo
+      touch de `backup.yml`).
+- [x] (M-3 quality) **[RESUELTO inline, fix pass Tanda B 2026-08-20]**
+      El step de sweep de `backup.yml` marcaba ROJO todo el workflow
+      si el DELETE fallaba, aunque el respaldo primario ya hubiera
+      subido — rompía la semántica "rojo = respaldo comprometido".
+      Fix: `continue-on-error: true` a nivel step + comment (incluye
+      el ajuste de wording del NIT de la re-review: distingue roturas
+      compartidas con el dump de los modos sweep-only). Re-review del
+      carril quality: PASS.
 
 ## Pendiente-por-archivo
 

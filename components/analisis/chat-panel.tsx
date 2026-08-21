@@ -23,6 +23,11 @@
 // (thinking / done / error) — never the streaming text container, which
 // would announce every delta.
 
+// MUST stay the first import: forces zod's jitless mode before any zod
+// schema in the client graph evaluates (CSP eval violation fix, T6).
+// See lib/zod-jitless.ts — do not let an import sorter move it.
+import '@/lib/zod-jitless';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from 'ai';

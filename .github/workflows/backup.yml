@@ -104,3 +104,30 @@ jobs:
           path: onetable-*.dump.enc
           retention-days: 7
           if-no-files-found: error
+
+      - name: Sweep de filas stale de RateLimit (I-4, hardening T6)
+        # Por qué: el cleanup lazy del limiter solo borra ventanas viejas del
+        # MISMO (scope, key) al incrementarlo — las keys IP one-shot (p.ej. un
+        # flood contra el endpoint público /api/csp-report) nunca se re-tocan
+        # y crecerían sin cota en Neon Free. Piggyback en este cron diario ya
+        # existente: cero infra nueva. El DELETE es idempotente y barato;
+        # 7 días de margen (las ventanas reales van de minutos a 1 día).
+        # Posición: DESPUÉS del dump (diseño del triage T6 — el backup del
+        # día captura el estado previo al sweep) y después del upload, para
+        # que un fallo del sweep jamás bloquee la subida del respaldo
+        # PRIMARIO. psql viene del postgresql-client-17 ya instalado arriba
+        # (mismo path absoluto que pg_dump). Mismo secret de production
+        # unpooled: el sweep corre contra la DB real de prod, por diseño.
+        # continue-on-error (M-3 de la review T6): un fallo del sweep queda
+        # como anotación del step sin marcar rojo el workflow — se preserva
+        # la semántica "rojo = respaldo comprometido". No oculta roturas
+        # compartidas con el dump (secret, host, auth): si eso está roto, el
+        # dump falla primero. Modos de falla sweep-only (tabla renombrada,
+        # grant revocado) quedan como anotación del run — residual al ledger.
+        continue-on-error: true
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          /usr/lib/postgresql/17/bin/psql "$BACKUP_DATABASE_URL" \
+            -c "DELETE FROM \"RateLimit\" WHERE \"windowStart\" < now() - interval '7 days';"

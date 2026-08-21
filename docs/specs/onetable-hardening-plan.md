@@ -181,6 +181,12 @@ responde en preview y prod).
 
 ### T5 — COPY (CORTE punto 5)
 
+> **Estado: COMPLETADO 2026-08-17** — PR #20 mergeado a main
+> (`b73c6e8`); gate UI cerrado con smoke completo de Michael (guión §10
+> del brief: MTL con restauración y anti-envenenamiento, 429 sin doble
+> punto con captura y restauración de `chatDailyLimit`, idioma §4.4).
+> Suite 510/53. Detalle: `docs/handoff/session-t5-close.md`.
+
 **[CC — código]**
 - Barrido voseo → tuteo con re-grep.
 

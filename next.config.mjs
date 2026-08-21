@@ -10,6 +10,10 @@ import {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // T6 (ZAP Z-8): drop the `X-Powered-By: Next.js` fingerprinting header.
+  // No unit test can see this (runtime server behavior, not the builder);
+  // verified via curl on the preview/prod deploy.
+  poweredByHeader: false,
   async headers() {
     // VERCEL_ENV is resolved at BUILD time — preview and production are
     // separate builds, so each gets its own CSP mode (T2 brief §2.3).
