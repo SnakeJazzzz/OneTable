@@ -4,6 +4,14 @@
 > su origen; el texto de los migrados es VERBATIM del ledger anterior.
 > Tracked pero gitignored: `git add -f` SIEMPRE.
 
+> **NOTA (cleanup de docs 2026-08-26):** los working docs de
+> `.superpowers/sdd/` que este ledger cita como evidencia (briefs,
+> reports, reviews de tasks cerrados) fueron purgados. Los que estaban
+> tracked se recuperan vía git history
+> (`git log --all -- .superpowers/sdd/<file>`); los untracked quedaron
+> resumidos en `docs/archive/sdd-working-docs-digest.md`. Los punteros
+> de las entradas históricas de abajo se dejan como están (audit trail).
+
 > **RE-GROUNDING 2026-07-17 (cierre de Fase 2, kickoff hardening):** los 20
 > ítems pre-existentes fueron verificados uno por uno contra el repo real
 > (main @ a5fc3ae). TODOS siguen vigentes; ninguno fue vuelto obsoleto por

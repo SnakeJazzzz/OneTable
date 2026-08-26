@@ -11,10 +11,11 @@ material de trabajo de sesión.
 | `docs/` (raíz y subcarpetas no listadas abajo) | **ACTIVO — manda hoy.** Si un doc activo contradice la realidad del repo, se corrige el doc (verificación empírica primero). |
 | `docs/archive/` | **Registro histórico inmutable.** No se edita; se consulta para el "por qué", nunca para estado presente. Sus referencias internas reflejan el layout al momento de archivarse. |
 | `docs/handoff/` | **Registro histórico** de cierres de sesión (índice en [`handoff/README.md`](handoff/README.md)). No se editan una vez escritos. Se quedan acá (no en archive/) porque los briefs los citan por este path. |
-| `.superpowers/sdd/` (fuera de docs/) | **Working docs** de sesión: briefs, reportes, reviews, backlog de hardening. Gitignored con excepciones tracked vía `git add -f`. |
+| `.superpowers/sdd/` (fuera de docs/) | **Working docs** de sesión: briefs, reportes, reviews, ledgers. Gitignored con excepciones tracked vía `git add -f`. Material EFÍMERO: al cerrar un bloque, los working docs de sus tasks se purgan (ver Regla de tránsito); solo sobreviven los ledgers vivos (`hardening-backlog.md`, `b4-followups.md`). |
 
-(`docs/superpowers/` existió para planes/design docs de bloques de Fase 2;
-quedó vacía en B-4 al archivarse todo su contenido y muere con ese commit.)
+(`docs/superpowers/`, `docs/plans/` y `docs/decisions/` existieron como
+scaffolding de fases previas; quedaron vacías y se eliminaron en el
+cleanup de docs de 2026-08-26.)
 
 ## Docs activos
 
@@ -38,10 +39,15 @@ quedó vacía en B-4 al archivarse todo su contenido y muere con ese commit.)
   sus briefs viven en `.superpowers/sdd/`).
 - `archive/hardening/` — plan faro del bloque de HARDENING (cerrado
   2026-08-20, T1-T6 completados, PRs #15-#21; flip de CSP de prod a
-  enforced verificado). Los briefs/reportes/reviews del bloque viven en
-  `.superpowers/sdd/`; el ledger (`hardening-backlog.md`) NO se archiva
+  enforced verificado). El ledger (`hardening-backlog.md`) NO se archiva
   — sigue VIVO para "hardening .2" y Fase 2.5. Handoff de cierre:
   `handoff/session-t6-close.md`.
+- `archive/sdd-working-docs-digest.md` — digest de los working docs de
+  `.superpowers/sdd/` purgados en el cleanup de 2026-08-26 (briefs,
+  reportes y reviews de tasks cerrados de Fase 2 y hardening).
+  Los que estaban tracked se recuperan completos vía git history
+  (`git log --all -- .superpowers/sdd/<file>`); los untracked solo
+  existen resumidos en este digest.
 - `handoff/` — todos los handoffs de sesión (ver su README).
 
 ## Regla de tránsito
@@ -53,3 +59,10 @@ docs ACTIVOS se actualiza en el mismo commit — las referencias dentro de
 handoffs y docs ya archivados se dejan como están, son historia). Después
 se actualiza este README. Este paso es parte del ritual de cierre de sesión
 de `CLAUDE.md` ("Cómo cierra cada sesión").
+
+Además, los **working docs** de `.superpowers/sdd/` de los tasks del
+bloque cerrado se purgan: los tracked con `git rm` (quedan recuperables
+en git history), los untracked se resumen primero en el digest de
+`docs/archive/` (o en uno nuevo por bloque) y recién entonces se borran.
+Los diffs/patches de trabajo se borran directo — se reconstruyen con
+`git show` del commit mergeado. Los ledgers vivos nunca se purgan.
